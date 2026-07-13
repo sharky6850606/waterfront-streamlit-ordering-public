@@ -1,0 +1,118 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AdminUser {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+model Category {
+  id        Int        @id @default(autoincrement())
+  name      String     @unique
+  sortOrder Int        @default(0)
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  items     MenuItem[]
+}
+
+model MenuItem {
+  id          Int         @id @default(autoincrement())
+  categoryId  Int
+  name        String
+  description String?
+  priceTala   Decimal
+  imageUrl    String?
+  isAvailable Boolean     @default(true)
+  isFeatured  Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  category    Category    @relation(fields: [categoryId], references: [id])
+  orderItems  OrderItem[]
+  options     MenuItemOption[]
+
+  @@index([categoryId, isAvailable])
+}
+
+model MenuItemOption {
+  id         Int      @id @default(autoincrement())
+  menuItemId Int
+  name       String
+  priceTala  Decimal
+  sortOrder  Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@index([menuItemId, sortOrder])
+}
+
+model Order {
+  id               Int             @id @default(autoincrement())
+  orderNumber      String          @unique
+  customerName     String
+  customerPhone    String
+  fulfillmentType  FulfillmentType
+  deliveryAddress  String?
+  status           OrderStatus     @default(NEW)
+  paymentMethod    PaymentMethod   @default(CASH)
+  subtotalTala     Decimal
+  deliveryFeeTala  Decimal
+  totalTala        Decimal
+  notes            String?
+  isSeenByAdmin    Boolean         @default(false)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  completedAt      DateTime?
+
+  items            OrderItem[]
+
+  @@index([status, createdAt])
+  @@index([customerPhone, createdAt])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id               Int      @id @default(autoincrement())
+  orderId          Int
+  menuItemId       Int
+  itemNameSnapshot String
+  unitPriceTala    Decimal
+  quantity         Int
+  lineTotalTala    Decimal
+
+  order            Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem         MenuItem @relation(fields: [menuItemId], references: [id])
+
+  @@index([orderId])
+  @@index([menuItemId])
+}
+
+enum FulfillmentType {
+  DELIVERY
+  PICKUP
+}
+
+enum OrderStatus {
+  NEW
+  PREPARING
+  READY_FOR_PICKUP
+  OUT_FOR_DELIVERY
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+}
