@@ -325,6 +325,10 @@ def cart_total() -> tuple[float, float, float]:
     return subtotal, delivery_fee, subtotal + delivery_fee
 
 
+def cart_count() -> int:
+    return sum(int(item["quantity"]) for item in st.session_state.cart)
+
+
 def add_to_cart(item: dict[str, Any], quantity: int, option_id: int | None = None) -> None:
     option = None
     if option_id:
@@ -557,6 +561,7 @@ def ensure_state() -> None:
     st.session_state.setdefault("fulfillment_type", "DELIVERY")
     st.session_state.setdefault("admin_authenticated", False)
     st.session_state.setdefault("last_order_number", "")
+    st.session_state.setdefault("view", "Home")
 
 
 def render_css() -> None:
@@ -564,32 +569,36 @@ def render_css() -> None:
         """
         <style>
         :root {
-            --brand: #0f4c5c;
-            --brand-dark: #12343b;
-            --accent: #c7782d;
+            --brand: #0e5967;
+            --brand-dark: #102a33;
+            --accent: #d46f2c;
             --surface: #fffdf8;
-            --line: #eadfce;
-            --muted: #5f6875;
+            --line: #e7dbc8;
+            --muted: #617080;
+            --page: #f7f2e8;
         }
         .stApp {
             background:
-                radial-gradient(circle at 8% 0%, rgba(199, 120, 45, .12), transparent 28rem),
-                linear-gradient(180deg, #fbf7ef 0%, #f4efe5 100%);
+                radial-gradient(circle at 8% 0%, rgba(212, 111, 44, .13), transparent 28rem),
+                linear-gradient(180deg, #fbf7ef 0%, var(--page) 100%);
             color: #17212b;
         }
-        section[data-testid="stSidebar"] {
-            background: #fffaf1;
-            border-right: 1px solid var(--line);
-        }
+        section[data-testid="stSidebar"] { display: none; }
+        button[kind="header"] { color: var(--brand-dark); }
         .block-container {
-            max-width: 1180px;
-            padding-top: 1.5rem;
+            max-width: 1240px;
+            padding-top: 1rem;
             padding-bottom: 3rem;
+        }
+        div[data-testid="stHorizontalBlock"] {
+            align-items: stretch;
         }
         h1, h2, h3 {
             color: var(--brand-dark);
             letter-spacing: 0;
         }
+        h1 { font-size: clamp(2rem, 4vw, 3.8rem); line-height: 1.02; }
+        h2 { font-size: clamp(1.35rem, 2vw, 2rem); }
         div[data-testid="stMetric"] {
             background: rgba(255, 253, 248, .92);
             border: 1px solid var(--line);
@@ -599,14 +608,58 @@ def render_css() -> None:
         }
         .hero {
             border: 1px solid var(--line);
-            background: rgba(255, 253, 248, .94);
+            background:
+                linear-gradient(135deg, rgba(14, 89, 103, .94), rgba(16, 42, 51, .9)),
+                rgba(255, 253, 248, .94);
             border-radius: 8px;
-            padding: 1.35rem 1.45rem;
-            box-shadow: 0 18px 45px rgba(52, 39, 23, .08);
-            margin-bottom: 1rem;
+            padding: clamp(1.4rem, 4vw, 3rem);
+            box-shadow: 0 22px 54px rgba(52, 39, 23, .12);
+            margin-bottom: 1.1rem;
+            overflow: hidden;
         }
-        .hero p, .muted {
+        .hero h1, .hero p { color: #fffaf1; }
+        .hero p {
+            max-width: 44rem;
+            font-size: 1.08rem;
+            margin-bottom: 0;
+        }
+        .muted {
             color: var(--muted);
+        }
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: .8rem 0 1rem;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: rgba(247, 242, 232, .86);
+            backdrop-filter: blur(14px);
+        }
+        .brand-lockup {
+            display: grid;
+            gap: .05rem;
+        }
+        .brand-kicker {
+            color: var(--accent);
+            font-size: .78rem;
+            font-weight: 800;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+        }
+        .brand-title {
+            color: var(--brand-dark);
+            font-weight: 900;
+            font-size: 1.35rem;
+        }
+        .nav-card {
+            border: 1px solid var(--line);
+            background: rgba(255, 253, 248, .86);
+            border-radius: 8px;
+            padding: .35rem .55rem;
+            box-shadow: 0 10px 24px rgba(52, 39, 23, .05);
         }
         .menu-card, .order-card, .cart-card {
             border: 1px solid var(--line);
@@ -615,6 +668,34 @@ def render_css() -> None:
             padding: 1rem;
             box-shadow: 0 14px 34px rgba(52, 39, 23, .07);
             margin-bottom: .8rem;
+        }
+        .menu-card {
+            min-height: 9.5rem;
+            display: grid;
+            align-content: start;
+            gap: .45rem;
+        }
+        .stat-strip {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: .85rem;
+            margin: .9rem 0 1.25rem;
+        }
+        .stat-tile {
+            border: 1px solid rgba(14, 89, 103, .12);
+            background: rgba(255, 253, 248, .88);
+            border-radius: 8px;
+            padding: .9rem 1rem;
+        }
+        .stat-tile strong {
+            display: block;
+            color: var(--brand-dark);
+            font-size: 1.35rem;
+            line-height: 1.15;
+        }
+        .stat-tile span {
+            color: var(--muted);
+            font-size: .88rem;
         }
         .menu-title {
             font-weight: 800;
@@ -650,6 +731,20 @@ def render_css() -> None:
         }
         .stTextInput input, .stTextArea textarea, .stNumberInput input, .stSelectbox div[data-baseweb="select"] {
             border-radius: 8px;
+        }
+        div[data-testid="stImage"] img {
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            aspect-ratio: 4 / 3;
+            object-fit: cover;
+        }
+        [data-testid="stRadio"] > div {
+            gap: .5rem;
+        }
+        @media (max-width: 760px) {
+            .topbar { position: static; align-items: flex-start; flex-direction: column; }
+            .stat-strip { grid-template-columns: 1fr; }
+            .block-container { padding-left: .9rem; padding-right: .9rem; }
         }
         </style>
         """,
@@ -706,10 +801,15 @@ def render_menu() -> None:
     st.markdown(
         """
         <div class="hero">
-          <h1>Waterfront Restaurant Orders</h1>
-          <p>Fast ordering for delivery or self pickup. Add items, confirm the cart, and track the order number after checkout.</p>
+          <h1>Order waterfront favorites without the wait.</h1>
+          <p>Browse the menu, choose delivery or self pickup, and get an order number you can track from your phone.</p>
+          <div class="stat-strip">
+            <div class="stat-tile"><strong>Cash</strong><span>Pay when your order arrives</span></div>
+            <div class="stat-tile"><strong>2 tala</strong><span>Flat delivery fee</span></div>
+            <div class="stat-tile"><strong>{cart_count}</strong><span>Items currently in cart</span></div>
+          </div>
         </div>
-        """,
+        """.format(cart_count=cart_count()),
         unsafe_allow_html=True,
     )
 
@@ -722,9 +822,9 @@ def render_menu() -> None:
         if not category["items"]:
             continue
         st.subheader(category["name"])
-        columns = st.columns(3)
+        columns = st.columns(2)
         for index, item in enumerate(category["items"]):
-            with columns[index % 3]:
+            with columns[index % 2]:
                 path = image_path(item["imageUrl"])
                 if path:
                     st.image(str(path), use_container_width=True)
@@ -768,6 +868,9 @@ def render_menu() -> None:
 
 def render_checkout() -> None:
     st.header("Checkout")
+    if not st.session_state.cart:
+        st.info("Your cart is empty. Add items from Order first.")
+
     st.session_state.fulfillment_type = st.radio(
         "Order type",
         ["DELIVERY", "PICKUP"],
@@ -864,15 +967,28 @@ def render_admin_login() -> bool:
     if st.session_state.admin_authenticated:
         return True
 
-    st.subheader("Admin login")
-    password = st.text_input("Admin password", type="password")
-    if st.button("Unlock admin", type="primary"):
-        if password == ADMIN_PASSWORD:
-            st.session_state.admin_authenticated = True
-            st.rerun()
-        else:
-            st.error("Incorrect admin password.")
-    st.caption("Default password is admin123. Set STREAMLIT_ADMIN_PASSWORD before launch.")
+    st.markdown(
+        """
+        <div class="hero">
+          <h1>Admin login</h1>
+          <p>Staff access for live orders, order status updates, and menu availability.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    left, right = st.columns([0.8, 1.2])
+    with left:
+        password = st.text_input("Admin password", type="password")
+        if st.button("Unlock admin", type="primary", use_container_width=True):
+            if password == ADMIN_PASSWORD:
+                st.session_state.admin_authenticated = True
+                st.session_state.view = "Admin"
+                st.rerun()
+            else:
+                st.error("Incorrect admin password.")
+        st.caption("Default password is admin123. Set STREAMLIT_ADMIN_PASSWORD before launch.")
+    with right:
+        st.info("Customers do not see the admin dashboard. It only appears after staff login.")
     return False
 
 
@@ -977,13 +1093,22 @@ def render_admin_menu() -> None:
 
 
 def render_admin() -> None:
-    st.header("Admin")
     if not render_admin_login():
         return
 
-    if st.button("Refresh data"):
-        st.cache_data.clear()
-        st.rerun()
+    col_title, col_action, col_logout = st.columns([1.4, .55, .45])
+    with col_title:
+        st.header("Admin dashboard")
+        st.caption("Live order control room")
+    with col_action:
+        if st.button("Refresh", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+    with col_logout:
+        if st.button("Log out", use_container_width=True):
+            st.session_state.admin_authenticated = False
+            st.session_state.view = "Order"
+            st.rerun()
 
     tab_orders, tab_menu = st.tabs(["Live orders", "Menu"])
     with tab_orders:
@@ -992,15 +1117,77 @@ def render_admin() -> None:
         render_admin_menu()
 
 
-def render_sidebar() -> None:
-    with st.sidebar:
-        st.title("Waterfront")
-        subtotal, _, total = cart_total()
-        st.metric("Cart items", sum(int(item["quantity"]) for item in st.session_state.cart))
-        st.metric("Cart total", money(total))
-        st.caption(f"Subtotal: {money(subtotal)}")
-        st.divider()
-        st.caption("Launch-ready Streamlit version using the same SQLite database.")
+def render_topbar() -> None:
+    subtotal, _, total = cart_total()
+    st.markdown(
+        f"""
+        <div class="topbar">
+          <div class="brand-lockup">
+            <span class="brand-kicker">Waterfront</span>
+            <span class="brand-title">Restaurant Orders</span>
+          </div>
+          <div class="nav-card">
+            <strong>{cart_count()} item(s)</strong> - {money(total)}
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_home() -> None:
+    st.markdown(
+        """
+        <div class="hero">
+          <h1>Fresh orders, simple pickup, easy delivery.</h1>
+          <p>Waterfront Restaurant Orders lets customers browse the menu, build a cart, and place a cash order in minutes.</p>
+          <div class="stat-strip">
+            <div class="stat-tile"><strong>1</strong><span>Pick menu items</span></div>
+            <div class="stat-tile"><strong>2</strong><span>Choose delivery or pickup</span></div>
+            <div class="stat-tile"><strong>3</strong><span>Track your order number</span></div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    col_a, col_b = st.columns([1.1, .9])
+    with col_a:
+        st.subheader("Start your order")
+        st.write("Use the Order page to add food and drinks to your cart. Checkout will collect your name, phone, and delivery location if needed.")
+        if st.button("Browse menu", type="primary", use_container_width=True):
+            st.session_state.view = "Order"
+            st.rerun()
+    with col_b:
+        st.subheader("Already ordered?")
+        st.write("Track by order number or by the phone number used at checkout.")
+        if st.button("Track order", use_container_width=True):
+            st.session_state.view = "Track"
+            st.rerun()
+
+
+def render_navigation() -> str:
+    admin_label = "Admin dashboard" if st.session_state.admin_authenticated else "Staff login"
+    options = ["Home", "Order", f"Checkout ({cart_count()})", "Track", admin_label]
+    current = st.session_state.view
+    if current == "Checkout":
+        current = f"Checkout ({cart_count()})"
+    if current == "Admin":
+        current = admin_label
+    selected = st.radio(
+        "Navigation",
+        options,
+        horizontal=True,
+        label_visibility="collapsed",
+        index=options.index(current) if current in options else 1,
+    )
+    if selected.startswith("Checkout"):
+        view = "Checkout"
+    elif selected in {"Staff login", "Admin dashboard"}:
+        view = "Admin"
+    else:
+        view = selected
+    st.session_state.view = view
+    return view
 
 
 def main() -> None:
@@ -1008,22 +1195,22 @@ def main() -> None:
         page_title="Waterfront Orders",
         page_icon="WF",
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="collapsed",
     )
     ensure_state()
     render_css()
-    render_sidebar()
+    render_topbar()
+    view = render_navigation()
 
-    tab_menu, tab_checkout, tab_track, tab_admin = st.tabs(
-        ["Menu", "Checkout", "Track Order", "Admin"]
-    )
-    with tab_menu:
+    if view == "Home":
+        render_home()
+    elif view == "Order":
         render_menu()
-    with tab_checkout:
+    elif view == "Checkout":
         render_checkout()
-    with tab_track:
+    elif view == "Track":
         render_track_order()
-    with tab_admin:
+    elif view == "Admin":
         render_admin()
 
 
