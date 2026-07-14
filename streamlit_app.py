@@ -767,7 +767,7 @@ def render_css() -> None:
             align-items: center;
             justify-content: space-between;
             gap: 1rem;
-            padding: .8rem 0 1rem;
+            padding: .9rem 0 1.25rem;
             position: sticky;
             top: 0;
             z-index: 10;
@@ -788,14 +788,47 @@ def render_css() -> None:
         .brand-title {
             color: var(--brand-dark);
             font-weight: 900;
-            font-size: 1.35rem;
+            font-size: 1.55rem;
         }
         .nav-card {
             border: 1px solid var(--line);
-            background: rgba(255, 253, 248, .86);
+            background: rgba(255, 253, 248, .92);
             border-radius: 8px;
-            padding: .35rem .55rem;
-            box-shadow: 0 10px 24px rgba(52, 39, 23, .05);
+            padding: .85rem 1rem;
+            box-shadow: 0 16px 34px rgba(52, 39, 23, .07);
+            font-size: 1rem;
+        }
+        .main-nav {
+            margin: .2rem 0 2.2rem;
+            max-width: 34rem;
+        }
+        .main-nav [data-testid="stRadio"] > div {
+            gap: .42rem;
+            align-items: center;
+        }
+        .main-nav [data-testid="stRadio"] label {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            min-width: 6.3rem;
+            min-height: 3rem;
+            padding: 0 .9rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 253, 248, .9);
+            box-shadow: 0 12px 28px rgba(52, 39, 23, .05);
+        }
+        .main-nav [data-testid="stRadio"] label:has(input:checked) {
+            background: linear-gradient(180deg, #0f7180, #0e5967);
+            color: #ffffff;
+            border-color: rgba(14, 89, 103, .36);
+        }
+        .main-nav [data-testid="stRadio"] label:has(input:checked) p {
+            color: #ffffff;
+            font-weight: 800;
+        }
+        .main-nav [data-testid="stRadio"] label > div:first-child {
+            display: none;
         }
         .order-card, .cart-card {
             border: 1px solid var(--line);
@@ -968,6 +1001,28 @@ def render_css() -> None:
         .stTextInput input, .stTextArea textarea, .stNumberInput input, .stSelectbox div[data-baseweb="select"] {
             border-radius: 8px;
         }
+        .checkout-shell {
+            margin-top: .4rem;
+        }
+        .checkout-shell h1 {
+            font-size: clamp(2.25rem, 4vw, 3rem);
+            margin-bottom: .25rem;
+        }
+        .segment-label {
+            margin: 1.4rem 0 .55rem;
+            font-weight: 700;
+        }
+        .checkout-form-card {
+            border: 1px solid var(--line);
+            background: rgba(255, 253, 248, .72);
+            border-radius: 8px;
+            padding: 1.45rem 1.3rem;
+            box-shadow: 0 14px 36px rgba(52, 39, 23, .05);
+        }
+        .checkout-form-card h2 {
+            margin-top: 0;
+            font-size: 1.85rem;
+        }
         div[data-testid="stImage"] img {
             border-radius: 8px;
             border: 1px solid var(--line);
@@ -979,6 +1034,8 @@ def render_css() -> None:
         }
         @media (max-width: 760px) {
             .topbar { position: static; align-items: flex-start; flex-direction: column; }
+            .main-nav [data-testid="stRadio"] > div { align-items: stretch; }
+            .main-nav [data-testid="stRadio"] label { min-width: calc(50% - .4rem); }
             .stat-strip { grid-template-columns: 1fr; }
             .cart-card { grid-template-columns: 4.75rem minmax(0, 1fr); }
             .cart-thumb { width: 4.75rem; height: 4.75rem; }
@@ -1162,24 +1219,36 @@ def render_menu() -> None:
 
 
 def render_checkout() -> None:
-    st.header("Checkout")
+    st.markdown('<div class="checkout-shell"><h1>Checkout</h1></div>', unsafe_allow_html=True)
     if not st.session_state.cart:
         st.info("Your cart is empty. Add items from Order first.")
 
-    st.session_state.fulfillment_type = st.radio(
-        "Order type",
-        ["DELIVERY", "PICKUP"],
-        format_func=lambda value: "Delivery" if value == "DELIVERY" else "Self pickup",
-        horizontal=True,
-        index=0 if st.session_state.fulfillment_type == "DELIVERY" else 1,
-    )
+    st.markdown('<div class="segment-label">Order type</div>', unsafe_allow_html=True)
+    delivery_col, pickup_col, _ = st.columns([0.12, 0.14, 0.74])
+    with delivery_col:
+        if st.button(
+            "Delivery",
+            type="primary" if st.session_state.fulfillment_type == "DELIVERY" else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state.fulfillment_type = "DELIVERY"
+            st.rerun()
+    with pickup_col:
+        if st.button(
+            "Self pickup",
+            type="primary" if st.session_state.fulfillment_type == "PICKUP" else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state.fulfillment_type = "PICKUP"
+            st.rerun()
 
     subtotal, delivery_fee, total = cart_total()
     left, right = st.columns([1.2, 0.8])
 
     with left:
+        st.markdown('<div class="checkout-form-card">', unsafe_allow_html=True)
         with st.form("checkout-form", clear_on_submit=False):
-            st.subheader("Customer details")
+            st.markdown("<h2>Customer details</h2>", unsafe_allow_html=True)
             name = st.text_input("Name")
             phone = st.text_input("Phone number")
             address = ""
@@ -1200,6 +1269,7 @@ def render_checkout() -> None:
                     st.rerun()
                 except Exception as exc:
                     st.error(str(exc))
+        st.markdown("</div>", unsafe_allow_html=True)
 
     with right:
         st.subheader("Your cart")
@@ -1497,6 +1567,7 @@ def render_navigation() -> str:
         current = f"Checkout ({cart_count()})"
     if current == "Admin":
         current = admin_label
+    st.markdown('<div class="main-nav">', unsafe_allow_html=True)
     selected = st.radio(
         "Navigation",
         options,
@@ -1504,6 +1575,7 @@ def render_navigation() -> str:
         label_visibility="collapsed",
         index=options.index(current) if current in options else 0,
     )
+    st.markdown("</div>", unsafe_allow_html=True)
     if selected.startswith("Checkout"):
         view = "Checkout"
     elif selected in {"Staff login", "Admin dashboard"}:
