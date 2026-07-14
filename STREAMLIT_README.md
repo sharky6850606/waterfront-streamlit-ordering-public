@@ -1,6 +1,6 @@
-# Waterfront Snack Bar Streamlit Ordering App
+# Waterfront Streamlit Ordering App
 
-This is a Streamlit launch version of the existing Waterfront ordering app. It uses the same SQLite database path at `prisma/dev.db` and keeps the current order/menu workflow intact.
+This is a Streamlit launch version of the existing restaurant ordering app. It uses the same SQLite database at `prisma/dev.db`, so your current menu and orders remain available.
 
 ## Run locally
 
@@ -36,44 +36,22 @@ http://YOUR-COMPUTER-IP:8501
 
 ## Admin
 
-Recommended Streamlit Secrets:
+Default Streamlit admin password:
 
-```toml
-[admin]
-username = "admin"
-password = "replace-with-a-strong-password"
+```text
+admin123
 ```
 
-You can also use a SHA-256 or PBKDF2 password hash:
-
-```toml
-[admin]
-username = "admin"
-password_hash = "sha256$your_hash_here"
-```
-
-Environment variable fallback is also supported:
+Before real use, set an environment variable:
 
 ```bash
-set STREAMLIT_ADMIN_USERNAME=admin
 set STREAMLIT_ADMIN_PASSWORD=your-new-password
 ```
 
-If no secret or environment variable is configured, the local fallback is `admin` / `admin123`. Change this before sharing the app widely.
-
-## Logo
-
-Add your logo here:
-
-```text
-assets/waterfront_logo.png
-```
-
-The app will not crash if the logo is missing.
+Then launch Streamlit from that same terminal.
 
 ## What this version includes
 
-- Public customer home, menu, order, track, business info, and contact pages
 - Menu browsing with existing food photos
 - Cart and quantity management
 - Delivery or self pickup
@@ -82,8 +60,7 @@ The app will not crash if the logo is missing.
 - Cash payment note
 - Order number generation
 - Customer order tracking
-- Protected admin dashboard
-- Chef-friendly live order board grouped by status
+- Admin live order view
 - Admin status updates
 - Admin menu availability toggles
 - Quick category and menu item creation
@@ -91,9 +68,10 @@ The app will not crash if the logo is missing.
 
 ## Recommended next improvements
 
-- Move from SQLite to PostgreSQL before heavy public usage.
+- Move from SQLite to PostgreSQL before public internet launch.
 - Add user-friendly payment confirmation if you start accepting online payment.
 - Add WhatsApp or SMS notifications for new order and status updates.
 - Add kitchen prep-time estimates and pickup time slots.
 - Add daily opening hours and stop ordering when closed.
+- Add better admin accounts instead of one shared Streamlit password.
 - Add backups for `prisma/dev.db` before every busy service period.

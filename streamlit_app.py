@@ -1,17 +1,14 @@
 from __future__ import annotations
 
 import csv
-import hashlib
-import hmac
 import html
 import os
 import random
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 from io import StringIO
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 import streamlit as st
 
@@ -19,13 +16,8 @@ import streamlit as st
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = APP_DIR / "prisma" / "dev.db"
 PUBLIC_DIR = APP_DIR / "public"
-ASSETS_DIR = APP_DIR / "assets"
-LOGO_PATH = ASSETS_DIR / "waterfront_logo.png"
 DELIVERY_FEE_TALA = 2.0
-SAMOA_TZ = ZoneInfo("Pacific/Apia")
-BUSINESS_NAME = "Waterfront Snack Bar"
-SYSTEM_NAME = "Waterfront Business Manager"
-DEFAULT_ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = os.getenv("STREAMLIT_ADMIN_PASSWORD", "admin123")
 
 STATUS_LABELS = {
     "NEW": "New",
@@ -190,81 +182,19 @@ def ensure_database() -> None:
 
 
 def now_value() -> str:
-    return datetime.now(SAMOA_TZ).isoformat(timespec="seconds")
+    return datetime.now().isoformat(timespec="seconds")
 
 
 def money(value: float | int | str | None) -> str:
-    return f"SAT ${float(value or 0):,.2f}"
-
-
-def business_today() -> str:
-    return datetime.now(SAMOA_TZ).date().isoformat()
+    return f"{float(value or 0):.2f} tala"
 
 
 def escape(value: Any) -> str:
     return html.escape(str(value or ""))
 
 
-def get_secret_value(section: str, key: str, default: str = "") -> str:
-    try:
-        value = st.secrets.get(section, {}).get(key, default)
-        return str(value) if value is not None else default
-    except Exception:
-        return default
-
-
-def get_admin_credentials() -> tuple[str, str, str]:
-    username = (
-        get_secret_value("admin", "username")
-        or os.getenv("STREAMLIT_ADMIN_USERNAME")
-        or DEFAULT_ADMIN_USERNAME
-    )
-    password_hash = get_secret_value("admin", "password_hash") or os.getenv("STREAMLIT_ADMIN_PASSWORD_HASH", "")
-    password = get_secret_value("admin", "password") or os.getenv("STREAMLIT_ADMIN_PASSWORD", "admin123")
-    return username, password_hash, password
-
-
-def verify_password(password: str, password_hash: str, fallback_password: str) -> bool:
-    if password_hash:
-        if password_hash.startswith("sha256$"):
-            expected = password_hash.split("sha256$", 1)[1]
-            actual = hashlib.sha256(password.encode("utf-8")).hexdigest()
-            return hmac.compare_digest(actual, expected)
-        if password_hash.startswith("pbkdf2_sha256$"):
-            try:
-                _, iterations, salt, expected = password_hash.split("$", 3)
-                actual = hashlib.pbkdf2_hmac(
-                    "sha256",
-                    password.encode("utf-8"),
-                    salt.encode("utf-8"),
-                    int(iterations),
-                ).hex()
-                return hmac.compare_digest(actual, expected)
-            except ValueError:
-                return False
-        actual = hashlib.sha256(password.encode("utf-8")).hexdigest()
-        return hmac.compare_digest(actual, password_hash)
-    return hmac.compare_digest(password, fallback_password)
-
-
-def verify_admin_login(username: str, password: str) -> bool:
-    saved_username, password_hash, fallback_password = get_admin_credentials()
-    return hmac.compare_digest(username.strip(), saved_username) and verify_password(
-        password,
-        password_hash,
-        fallback_password,
-    )
-
-
-def require_admin() -> None:
-    if not st.session_state.get("admin_authenticated", False):
-        st.warning("Administrator login is required.")
-        st.session_state.current_area = "public"
-        st.stop()
-
-
 def generate_order_number() -> str:
-    stamp = datetime.now(SAMOA_TZ).strftime("%y%m%d")
+    stamp = datetime.now().strftime("%y%m%d")
     return f"ORD-{stamp}-{random.randint(1000, 9999)}"
 
 
@@ -538,7 +468,6 @@ def create_order(name: str, phone: str, address: str, notes: str) -> str:
 
 
 def update_order_status(order_id: int, status: str) -> None:
-    require_admin()
     completed_at = now_value() if status == "COMPLETED" else None
     with connect() as conn:
         conn.execute(
@@ -554,7 +483,6 @@ def update_order_status(order_id: int, status: str) -> None:
 
 
 def update_item_availability(item_id: int, is_available: bool) -> None:
-    require_admin()
     with connect() as conn:
         conn.execute(
             """
@@ -569,7 +497,6 @@ def update_item_availability(item_id: int, is_available: bool) -> None:
 
 
 def add_category(name: str) -> None:
-    require_admin()
     name = name.strip()
     if not name:
         return
@@ -587,7 +514,6 @@ def add_category(name: str) -> None:
 
 
 def add_menu_item(category_id: int, name: str, description: str, price: float, image_url: str) -> None:
-    require_admin()
     with connect() as conn:
         conn.execute(
             """
@@ -635,12 +561,10 @@ def ensure_state() -> None:
     st.session_state.setdefault("fulfillment_type", "DELIVERY")
     st.session_state.setdefault("admin_authenticated", False)
     st.session_state.setdefault("last_order_number", "")
-    st.session_state.setdefault("current_area", "public")
-    st.session_state.setdefault("public_page", "Home")
-    st.session_state.setdefault("admin_page", "Dashboard")
+    st.session_state.setdefault("view", "Order")
 
 
-def render_css(show_admin_sidebar: bool = False) -> None:
+def render_css() -> None:
     st.markdown(
         """
         <style>
@@ -659,11 +583,7 @@ def render_css(show_admin_sidebar: bool = False) -> None:
                 linear-gradient(180deg, #fbf7ef 0%, var(--page) 100%);
             color: #17212b;
         }
-        section[data-testid="stSidebar"] {
-            display: __SIDEBAR_DISPLAY__;
-            background: #fffaf1;
-            border-right: 1px solid var(--line);
-        }
+        section[data-testid="stSidebar"] { display: none; }
         button[kind="header"] { color: var(--brand-dark); }
         .block-container {
             max-width: 1240px;
@@ -782,42 +702,6 @@ def render_css(show_admin_sidebar: bool = False) -> None:
             color: var(--brand-dark);
             font-size: 1.04rem;
         }
-        .kitchen-card {
-            border: 1px solid var(--line);
-            background: rgba(255, 253, 248, .98);
-            border-radius: 8px;
-            padding: .9rem;
-            box-shadow: 0 14px 30px rgba(52, 39, 23, .08);
-            margin-bottom: .8rem;
-        }
-        .kitchen-head {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: .65rem;
-            margin-bottom: .55rem;
-        }
-        .order-number {
-            font-size: 1.05rem;
-            font-weight: 900;
-            color: var(--brand-dark);
-        }
-        .kitchen-meta {
-            display: flex;
-            flex-wrap: wrap;
-            gap: .45rem;
-            color: var(--muted);
-            font-size: .84rem;
-            margin-bottom: .55rem;
-        }
-        .kitchen-items {
-            margin: .5rem 0 .65rem 1.1rem;
-            padding: 0;
-        }
-        .kitchen-items li {
-            margin-bottom: .25rem;
-            font-size: .96rem;
-        }
         .price {
             color: var(--brand);
             font-weight: 800;
@@ -863,7 +747,7 @@ def render_css(show_admin_sidebar: bool = False) -> None:
             .block-container { padding-left: .9rem; padding-right: .9rem; }
         }
         </style>
-        """.replace("__SIDEBAR_DISPLAY__", "block" if show_admin_sidebar else "none"),
+        """,
         unsafe_allow_html=True,
     )
 
@@ -911,70 +795,6 @@ def render_order(order: dict[str, Any], admin: bool = False) -> None:
             st.info(f"Delivery location: {order['deliveryAddress']}")
         if order["notes"]:
             st.caption(f"Notes: {order['notes']}")
-
-
-def render_kitchen_order_card(order: dict[str, Any]) -> None:
-    items = get_order_items(order["id"])
-    item_lines = "".join(
-        f"<li><strong>{int(item['quantity'])}x</strong> {escape(item['itemNameSnapshot'])}</li>"
-        for item in items
-    )
-    fulfilment = "Delivery" if order["fulfillmentType"] == "DELIVERY" else "Pickup"
-    address = f"<p><strong>Location:</strong> {escape(order['deliveryAddress'])}</p>" if order["deliveryAddress"] else ""
-    notes = f"<p><strong>Notes:</strong> {escape(order['notes'])}</p>" if order["notes"] else ""
-    st.markdown(
-        f"""
-        <div class="kitchen-card">
-          <div class="kitchen-head">
-            <div>
-              <div class="order-number">{escape(order["orderNumber"])}</div>
-              <div class="muted">{escape(order["customerName"])} - {escape(order["customerPhone"])}</div>
-            </div>
-            <span class="pill {status_class(order["status"])}">{escape(STATUS_LABELS.get(order["status"], order["status"]))}</span>
-          </div>
-          <div class="kitchen-meta">
-            <span>{escape(fulfilment)}</span>
-            <span>{money(order["totalTala"])}</span>
-            <span>{escape(order["createdAt"])}</span>
-          </div>
-          <ul class="kitchen-items">{item_lines}</ul>
-          {address}
-          {notes}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def render_admin_order_board(orders: list[dict[str, Any]]) -> None:
-    st.subheader("Kitchen order board")
-    st.caption("New and active orders are grouped for quick kitchen/admin handling.")
-    lanes = [
-        ("NEW", "New"),
-        ("PREPARING", "Preparing"),
-        ("READY_FOR_PICKUP", "Ready / Pickup"),
-        ("OUT_FOR_DELIVERY", "Out for Delivery"),
-    ]
-    columns = st.columns(len(lanes))
-    for column, (status, label) in zip(columns, lanes):
-        with column:
-            lane_orders = [order for order in orders if order["status"] == status]
-            st.markdown(f"#### {label} ({len(lane_orders)})")
-            if not lane_orders:
-                st.info("No orders")
-            for order in lane_orders:
-                render_kitchen_order_card(order)
-                next_statuses = list(STATUS_LABELS.keys())
-                selected_status = st.selectbox(
-                    "Move order",
-                    next_statuses,
-                    index=next_statuses.index(order["status"]),
-                    format_func=lambda value: STATUS_LABELS[value],
-                    key=f"board-status-{order['id']}",
-                )
-                if st.button("Update", key=f"board-update-{order['id']}", use_container_width=True):
-                    update_order_status(order["id"], selected_status)
-                    st.rerun()
 
 
 def render_menu() -> None:
@@ -1158,41 +978,30 @@ def render_admin_login() -> bool:
     )
     left, right = st.columns([0.8, 1.2])
     with left:
-        with st.form("admin-login-form"):
-            username = st.text_input("Username")
-            password = st.text_input("Password", type="password")
-            submitted = st.form_submit_button("Unlock admin", type="primary", use_container_width=True)
-        if submitted:
-            if verify_admin_login(username, password):
+        password = st.text_input("Admin password", type="password")
+        if st.button("Unlock admin", type="primary", use_container_width=True):
+            if password == ADMIN_PASSWORD:
                 st.session_state.admin_authenticated = True
-                st.session_state.current_area = "admin"
-                st.session_state.admin_page = "Dashboard"
+                st.session_state.view = "Admin"
                 st.rerun()
             else:
-                st.error("Incorrect administrator login details.")
-        st.caption("Set admin credentials in Streamlit Secrets before launch.")
+                st.error("Incorrect admin password.")
+        st.caption("Default password is admin123. Set STREAMLIT_ADMIN_PASSWORD before launch.")
     with right:
         st.info("Customers do not see the admin dashboard. It only appears after staff login.")
-        if st.button("Return to customer site", use_container_width=True):
-            st.session_state.current_area = "public"
-            st.session_state.public_page = "Home"
-            st.rerun()
     return False
 
 
 def render_admin_orders() -> None:
-    require_admin()
     orders = get_recent_orders()
     active = [order for order in orders if order["status"] in ACTIVE_STATUSES]
     new_count = sum(1 for order in orders if order["status"] == "NEW")
-    today_total = sum(float(order["totalTala"]) for order in orders if str(order["createdAt"])[:10] == business_today())
+    today_total = sum(float(order["totalTala"]) for order in orders if str(order["createdAt"])[:10] == now_value()[:10])
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Active orders", len(active))
     c2.metric("New orders", new_count)
     c3.metric("Today's sales", money(today_total))
-
-    render_admin_order_board(active)
 
     st.download_button(
         "Download recent orders CSV",
@@ -1234,7 +1043,6 @@ def render_admin_orders() -> None:
 
 
 def render_admin_menu() -> None:
-    require_admin()
     st.subheader("Menu availability")
     for category in get_menu():
         st.write(f"**{category['name']}**")
@@ -1284,53 +1092,14 @@ def render_admin_menu() -> None:
                 st.rerun()
 
 
-def render_admin_sidebar() -> str:
-    require_admin()
-    with st.sidebar:
-        if LOGO_PATH.exists():
-            st.image(str(LOGO_PATH), use_container_width=True)
-        else:
-            st.markdown(f"## {BUSINESS_NAME}")
-        st.caption(SYSTEM_NAME)
-        st.divider()
-        pages = [
-            "Dashboard",
-            "Live Orders",
-            "Menu Management",
-            "Reports",
-            "Settings",
-        ]
-        selected = st.radio(
-            "Admin navigation",
-            pages,
-            index=pages.index(st.session_state.admin_page)
-            if st.session_state.admin_page in pages
-            else 0,
-        )
-        st.session_state.admin_page = selected
-        st.divider()
-        if st.button("Logout", use_container_width=True):
-            st.session_state.admin_authenticated = False
-            st.session_state.current_area = "public"
-            st.session_state.public_page = "Home"
-            st.session_state.admin_page = "Dashboard"
-            st.rerun()
-    return st.session_state.admin_page
-
-
-def render_admin_dashboard() -> None:
-    require_admin()
-    orders = get_recent_orders()
-    active = [order for order in orders if order["status"] in ACTIVE_STATUSES]
-    today_orders = [order for order in orders if str(order["createdAt"])[:10] == business_today()]
-    today_sales = sum(float(order["totalTala"]) for order in today_orders)
-    completed = sum(1 for order in today_orders if order["status"] == "COMPLETED")
-    cancelled = sum(1 for order in today_orders if order["status"] == "CANCELLED")
+def render_admin() -> None:
+    if not render_admin_login():
+        return
 
     col_title, col_action, col_logout = st.columns([1.4, .55, .45])
     with col_title:
-        st.header("Waterfront Business Overview")
-        st.caption("Samoa business date: " + business_today())
+        st.header("Admin dashboard")
+        st.caption("Live order control room")
     with col_action:
         if st.button("Refresh", use_container_width=True):
             st.cache_data.clear()
@@ -1338,69 +1107,14 @@ def render_admin_dashboard() -> None:
     with col_logout:
         if st.button("Log out", use_container_width=True):
             st.session_state.admin_authenticated = False
-            st.session_state.current_area = "public"
-            st.session_state.public_page = "Home"
-            st.session_state.admin_page = "Dashboard"
+            st.session_state.view = "Order"
             st.rerun()
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Today's sales", money(today_sales))
-    c2.metric("Active orders", len(active))
-    c3.metric("Completed today", completed)
-    c4.metric("Cancelled today", cancelled)
-
-    if not orders:
-        st.info("No orders yet. New customer orders will appear here.")
-    else:
-        render_admin_order_board(active)
-
-
-def render_reports_page() -> None:
-    require_admin()
-    st.header("Order Reports")
-    st.caption("Download and review order records from the current ordering database.")
-    orders = get_recent_orders(500)
-    st.download_button(
-        "Download customer orders CSV",
-        data=order_csv(orders),
-        file_name=f"waterfront-orders-{business_today()}.csv",
-        mime="text/csv",
-    )
-    if orders:
-        status_counts: dict[str, int] = {}
-        for order in orders:
-            status_counts[STATUS_LABELS.get(order["status"], order["status"])] = status_counts.get(
-                STATUS_LABELS.get(order["status"], order["status"]),
-                0,
-            ) + 1
-        st.bar_chart(status_counts)
-    else:
-        st.info("No report data yet.")
-
-
-def render_settings_page() -> None:
-    require_admin()
-    st.header("Settings")
-    st.write(f"Business name: **{BUSINESS_NAME}**")
-    st.write("Currency: **SAT**")
-    st.write("Timezone: **Pacific/Apia**")
-    st.write(f"Logo path: `{LOGO_PATH}`")
-    st.info("This version uses the existing SQLite ordering database. Secrets are configured server-side and are not displayed here.")
-
-
-def render_admin() -> None:
-    require_admin()
-    page = render_admin_sidebar()
-    if page == "Dashboard":
-        render_admin_dashboard()
-    elif page == "Live Orders":
+    tab_orders, tab_menu = st.tabs(["Live orders", "Menu"])
+    with tab_orders:
         render_admin_orders()
-    elif page == "Menu Management":
+    with tab_menu:
         render_admin_menu()
-    elif page == "Reports":
-        render_reports_page()
-    elif page == "Settings":
-        render_settings_page()
 
 
 def render_topbar() -> None:
@@ -1421,81 +1135,14 @@ def render_topbar() -> None:
     )
 
 
-def render_home() -> None:
-    st.markdown(
-        """
-        <div class="hero">
-          <h1>Fresh orders, simple pickup, easy delivery.</h1>
-          <p>Waterfront Restaurant Orders lets customers browse the menu, build a cart, and place a cash order in minutes.</p>
-          <div class="stat-strip">
-            <div class="stat-tile"><strong>1</strong><span>Pick menu items</span></div>
-            <div class="stat-tile"><strong>2</strong><span>Choose delivery or pickup</span></div>
-            <div class="stat-tile"><strong>3</strong><span>Track your order number</span></div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    col_a, col_b = st.columns([1.1, .9])
-    with col_a:
-        st.subheader("Start your order")
-        st.write("Use the Order page to add food and drinks to your cart. Checkout will collect your name, phone, and delivery location if needed.")
-        if st.button("Browse menu", type="primary", use_container_width=True):
-            st.session_state.public_page = "Menu and Services"
-            st.rerun()
-    with col_b:
-        st.subheader("Already ordered?")
-        st.write("Track by order number or by the phone number used at checkout.")
-        if st.button("Track order", use_container_width=True):
-            st.session_state.public_page = "Track Order"
-            st.rerun()
-
-
-def render_business_information() -> None:
-    st.header("Business Information")
-    col_a, col_b = st.columns([1.1, .9])
-    with col_a:
-        st.markdown(
-            """
-            <div class="menu-card">
-              <div class="menu-title">Waterfront Snack Bar</div>
-              <p class="muted">A simple local snack bar ordering system for pickup and delivery requests.</p>
-              <p><strong>Payment:</strong> Cash on delivery or pickup.</p>
-              <p><strong>Delivery:</strong> Flat SAT $2.00 delivery fee where available.</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with col_b:
-        st.info("Place an order request online and Waterfront Snack Bar will prepare it through the admin order board.")
-
-
-def render_contact_hours() -> None:
-    st.header("Contact and Opening Hours")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.subheader("Contact")
-        st.write("Phone: Add your public business phone number in Settings.")
-        st.write("Location: Waterfront Snack Bar")
-    with col_b:
-        st.subheader("Opening hours")
-        st.write("Set your opening hours in Settings before launch.")
-        st.write("Customers can still submit requests; staff confirm availability.")
-
-
-def render_public_navigation() -> str:
-    options = [
-        "Home",
-        "Menu and Services",
-        f"Place Order ({cart_count()})",
-        "Track Order",
-        "Business Information",
-        "Contact and Opening Hours",
-        "Admin Login",
-    ]
-    current = st.session_state.public_page
-    if current == "Place Order":
-        current = f"Place Order ({cart_count()})"
+def render_navigation() -> str:
+    admin_label = "Admin dashboard" if st.session_state.admin_authenticated else "Staff login"
+    options = ["Order", f"Checkout ({cart_count()})", "Track", admin_label]
+    current = st.session_state.view
+    if current == "Checkout":
+        current = f"Checkout ({cart_count()})"
+    if current == "Admin":
+        current = admin_label
     selected = st.radio(
         "Navigation",
         options,
@@ -1504,49 +1151,35 @@ def render_public_navigation() -> str:
         index=options.index(current) if current in options else 0,
     )
     if selected.startswith("Checkout"):
-        page = "Place Order"
-    elif selected.startswith("Place Order"):
-        page = "Place Order"
+        view = "Checkout"
+    elif selected in {"Staff login", "Admin dashboard"}:
+        view = "Admin"
     else:
-        page = selected
-    st.session_state.public_page = page
-    return page
+        view = selected
+    st.session_state.view = view
+    return view
 
 
 def main() -> None:
     st.set_page_config(
-        page_title="Waterfront Business Manager",
+        page_title="Waterfront Orders",
         page_icon="WF",
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="collapsed",
     )
     ensure_state()
-    is_admin_area = st.session_state.current_area == "admin" and st.session_state.admin_authenticated
-    render_css(show_admin_sidebar=is_admin_area)
-
-    if is_admin_area:
-        render_admin()
-        return
-
+    render_css()
     render_topbar()
-    page = render_public_navigation()
+    view = render_navigation()
 
-    if page == "Home":
-        render_home()
-    elif page == "Menu and Services":
+    if view == "Order":
         render_menu()
-    elif page == "Place Order":
+    elif view == "Checkout":
         render_checkout()
-    elif page == "Track Order":
+    elif view == "Track":
         render_track_order()
-    elif page == "Business Information":
-        render_business_information()
-    elif page == "Contact and Opening Hours":
-        render_contact_hours()
-    elif page == "Admin Login":
-        if render_admin_login():
-            st.session_state.current_area = "admin"
-            st.rerun()
+    elif view == "Admin":
+        render_admin()
 
 
 if __name__ == "__main__":
