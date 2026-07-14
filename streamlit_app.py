@@ -957,50 +957,25 @@ def render_css() -> None:
             color: var(--muted);
             font-weight: 800;
         }
-        .floating-cart {
+        .st-key-floating_cart {
             position: fixed;
             right: 1.1rem;
             bottom: 1.1rem;
             z-index: 999;
-            display: inline-flex;
-            align-items: center;
-            gap: .65rem;
-            min-width: 13rem;
-            justify-content: space-between;
-            padding: .85rem 1rem;
+            width: 15rem;
+        }
+        .st-key-floating_cart .stButton > button {
+            min-height: 3.3rem;
             border-radius: 8px;
             background: linear-gradient(135deg, var(--brand), #123f49);
             color: #fffaf1 !important;
-            text-decoration: none !important;
             box-shadow: 0 22px 48px rgba(16, 42, 51, .26);
             border: 1px solid rgba(255, 255, 255, .18);
             font-weight: 850;
         }
-        .floating-cart:hover {
+        .st-key-floating_cart .stButton > button:hover {
             transform: translateY(-1px);
             box-shadow: 0 26px 54px rgba(16, 42, 51, .3);
-        }
-        .floating-cart span {
-            display: block;
-            color: rgba(255, 250, 241, .76);
-            font-size: .78rem;
-            font-weight: 700;
-        }
-        .floating-cart strong {
-            display: block;
-            color: #fffaf1;
-            font-size: .98rem;
-        }
-        .floating-cart .cart-count {
-            min-width: 2.2rem;
-            min-height: 2.2rem;
-            border-radius: 999px;
-            display: grid;
-            place-items: center;
-            background: rgba(255, 250, 241, .18);
-            color: #fffaf1;
-            font-size: 1rem;
-            font-weight: 900;
         }
         .stat-strip {
             display: grid;
@@ -1152,11 +1127,11 @@ def render_css() -> None:
             .stat-strip { grid-template-columns: 1fr; }
             .cart-card { grid-template-columns: 4.75rem minmax(0, 1fr); }
             .cart-thumb { width: 4.75rem; height: 4.75rem; }
-            .floating-cart {
+            .st-key-floating_cart {
                 left: .85rem;
                 right: .85rem;
                 bottom: .85rem;
-                min-width: 0;
+                width: auto;
             }
             .block-container { padding-left: .9rem; padding-right: .9rem; }
         }
@@ -1696,35 +1671,19 @@ def render_topbar() -> None:
     )
 
 
-def sync_view_from_query() -> None:
-    requested_view = st.query_params.get("view")
-    if isinstance(requested_view, list):
-        requested_view = requested_view[0] if requested_view else None
-    if requested_view in {"Order", "Checkout", "Track", "Admin"}:
-        st.session_state.view = requested_view
-
-
 def set_view(view: str) -> None:
     st.session_state.view = view
-    st.query_params["view"] = view
 
 
 def render_floating_cart() -> None:
     _, _, total = cart_total()
     count = cart_count()
-    label = "Checkout" if count else "Cart empty"
-    st.markdown(
-        f"""
-        <a class="floating-cart" href="?view=Checkout" aria-label="Open checkout">
-          <div>
-            <strong>{escape(label)}</strong>
-            <span>{money(total)}</span>
-          </div>
-          <div class="cart-count">{count}</div>
-        </a>
-        """,
-        unsafe_allow_html=True,
-    )
+    item_word = "item" if count == 1 else "items"
+    label = f"Cart: {count} {item_word} - {money(total)}"
+    with st.container(key="floating_cart"):
+        if st.button(label, key="open-floating-cart", type="primary", use_container_width=True):
+            set_view("Checkout")
+            st.rerun()
 
 
 def render_navigation() -> str:
@@ -1757,7 +1716,6 @@ def main() -> None:
         initial_sidebar_state="collapsed",
     )
     ensure_state()
-    sync_view_from_query()
     render_css()
     if st.session_state.cart_notice:
         st.toast(st.session_state.cart_notice)
