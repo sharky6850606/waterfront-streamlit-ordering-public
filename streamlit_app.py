@@ -1318,16 +1318,14 @@ def render_promo_strip(menu: list[dict[str, Any]]) -> None:
             for badge in item.get("promoBadges", [])
         )
         cards.append(
-            f"""
-            <div class="promo-card">
-              {image_markup}
-              <div class="promo-card-body">
-                <div class="menu-badge-row">{badges}</div>
-                <div class="menu-title">{escape(item["name"])}</div>
-                <div class="price">{money(item["priceTala"])}</div>
-              </div>
-            </div>
-            """
+            "<div class=\"promo-card\">"
+            f"{image_markup}"
+            "<div class=\"promo-card-body\">"
+            f"<div class=\"menu-badge-row\">{badges}</div>"
+            f"<div class=\"menu-title\">{escape(item['name'])}</div>"
+            f"<div class=\"price\">{money(item['priceTala'])}</div>"
+            "</div>"
+            "</div>"
         )
 
     st.subheader("Featured, New & Specials")
