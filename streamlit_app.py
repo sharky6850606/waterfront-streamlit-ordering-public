@@ -7,6 +7,7 @@ import mimetypes
 import os
 import random
 import sqlite3
+from textwrap import dedent
 from datetime import datetime, timedelta
 from io import StringIO
 from pathlib import Path
@@ -439,7 +440,7 @@ def add_to_cart(item: dict[str, Any], quantity: int, option_id: int | None = Non
     for cart_item in st.session_state.cart:
         if cart_item["cart_key"] == cart_key:
             cart_item["quantity"] += quantity
-            st.toast(f"Updated {name} in cart")
+            st.session_state.cart_notice = f"Updated {name} in cart"
             return
 
     st.session_state.cart.append(
@@ -453,7 +454,7 @@ def add_to_cart(item: dict[str, Any], quantity: int, option_id: int | None = Non
             "image_url": item.get("imageUrl"),
         }
     )
-    st.toast(f"Added {name}")
+    st.session_state.cart_notice = f"Added {name} to cart"
 
 
 def validate_order(name: str, phone: str, address: str) -> str | None:
@@ -698,6 +699,7 @@ def ensure_state() -> None:
     st.session_state.setdefault("admin_authenticated", False)
     st.session_state.setdefault("last_order_number", "")
     st.session_state.setdefault("view", "Order")
+    st.session_state.setdefault("cart_notice", "")
 
 
 def render_css() -> None:
@@ -798,15 +800,15 @@ def render_css() -> None:
             box-shadow: 0 16px 34px rgba(52, 39, 23, .07);
             font-size: 1rem;
         }
-        .main-nav {
+        div[data-testid="stRadio"] {
             margin: .2rem 0 2.2rem;
-            max-width: 34rem;
         }
-        .main-nav [data-testid="stRadio"] > div {
+        div[data-testid="stRadio"] > div {
             gap: .42rem;
             align-items: center;
+            flex-wrap: wrap;
         }
-        .main-nav [data-testid="stRadio"] label {
+        div[data-testid="stRadio"] label {
             border: 1px solid var(--line);
             border-radius: 8px;
             min-width: 6.3rem;
@@ -818,16 +820,16 @@ def render_css() -> None:
             background: rgba(255, 253, 248, .9);
             box-shadow: 0 12px 28px rgba(52, 39, 23, .05);
         }
-        .main-nav [data-testid="stRadio"] label:has(input:checked) {
+        div[data-testid="stRadio"] label:has(input:checked) {
             background: linear-gradient(180deg, #0f7180, #0e5967);
             color: #ffffff;
             border-color: rgba(14, 89, 103, .36);
         }
-        .main-nav [data-testid="stRadio"] label:has(input:checked) p {
+        div[data-testid="stRadio"] label:has(input:checked) p {
             color: #ffffff;
             font-weight: 800;
         }
-        .main-nav [data-testid="stRadio"] label > div:first-child {
+        div[data-testid="stRadio"] label > div:first-child {
             display: none;
         }
         .order-card, .cart-card {
@@ -1034,8 +1036,8 @@ def render_css() -> None:
         }
         @media (max-width: 760px) {
             .topbar { position: static; align-items: flex-start; flex-direction: column; }
-            .main-nav [data-testid="stRadio"] > div { align-items: stretch; }
-            .main-nav [data-testid="stRadio"] label { min-width: calc(50% - .4rem); }
+            div[data-testid="stRadio"] > div { align-items: stretch; }
+            div[data-testid="stRadio"] label { min-width: calc(50% - .4rem); }
             .stat-strip { grid-template-columns: 1fr; }
             .cart-card { grid-template-columns: 4.75rem minmax(0, 1fr); }
             .cart-thumb { width: 4.75rem; height: 4.75rem; }
@@ -1175,7 +1177,7 @@ def render_menu() -> None:
                         else '<span class="menu-badge is-unavailable">Unavailable</span>'
                     )
                     st.markdown(
-                        f"""
+                        dedent(f"""
                         <div class="menu-card">
                           <div class="menu-card-media">{image_markup}</div>
                           <div class="menu-card-body">
@@ -1188,7 +1190,7 @@ def render_menu() -> None:
                             <div class="muted">{escape(item["description"])}</div>
                           </div>
                         </div>
-                        """,
+                        """),
                         unsafe_allow_html=True,
                     )
 
@@ -1567,7 +1569,6 @@ def render_navigation() -> str:
         current = f"Checkout ({cart_count()})"
     if current == "Admin":
         current = admin_label
-    st.markdown('<div class="main-nav">', unsafe_allow_html=True)
     selected = st.radio(
         "Navigation",
         options,
@@ -1575,7 +1576,6 @@ def render_navigation() -> str:
         label_visibility="collapsed",
         index=options.index(current) if current in options else 0,
     )
-    st.markdown("</div>", unsafe_allow_html=True)
     if selected.startswith("Checkout"):
         view = "Checkout"
     elif selected in {"Staff login", "Admin dashboard"}:
@@ -1595,6 +1595,9 @@ def main() -> None:
     )
     ensure_state()
     render_css()
+    if st.session_state.cart_notice:
+        st.toast(st.session_state.cart_notice)
+        st.session_state.cart_notice = ""
     render_topbar()
     view = render_navigation()
 
