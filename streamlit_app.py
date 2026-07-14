@@ -1295,11 +1295,8 @@ def render_admin_sidebar() -> str:
         st.divider()
         pages = [
             "Dashboard",
-            "Sales",
-            "Expenses",
-            "Customer Orders",
-            "Menu and Services Management",
-            "Daily Records",
+            "Live Orders",
+            "Menu Management",
             "Reports",
             "Settings",
         ]
@@ -1358,38 +1355,10 @@ def render_admin_dashboard() -> None:
         render_admin_order_board(active)
 
 
-def render_sales_page() -> None:
-    require_admin()
-    st.header("Sales")
-    st.info("Sales are currently generated from completed customer orders. Dedicated manual sales entry can be added when you are ready.")
-    orders = [order for order in get_recent_orders() if order["status"] == "COMPLETED"]
-    if orders:
-        st.dataframe(
-            [
-                {
-                    "Order": order["orderNumber"],
-                    "Customer": order["customerName"],
-                    "Payment": order["paymentMethod"],
-                    "Total": money(order["totalTala"]),
-                    "Created": order["createdAt"],
-                }
-                for order in orders
-            ],
-            use_container_width=True,
-        )
-    else:
-        st.warning("No completed sales yet.")
-
-
-def render_placeholder_admin_page(title: str, message: str) -> None:
-    require_admin()
-    st.header(title)
-    st.info(message)
-
-
 def render_reports_page() -> None:
     require_admin()
-    st.header("Reports")
+    st.header("Order Reports")
+    st.caption("Download and review order records from the current ordering database.")
     orders = get_recent_orders(500)
     st.download_button(
         "Download customer orders CSV",
@@ -1416,7 +1385,7 @@ def render_settings_page() -> None:
     st.write("Currency: **SAT**")
     st.write("Timezone: **Pacific/Apia**")
     st.write(f"Logo path: `{LOGO_PATH}`")
-    st.info("Secrets are configured server-side and are not displayed here.")
+    st.info("This version uses the existing SQLite ordering database. Secrets are configured server-side and are not displayed here.")
 
 
 def render_admin() -> None:
@@ -1424,16 +1393,10 @@ def render_admin() -> None:
     page = render_admin_sidebar()
     if page == "Dashboard":
         render_admin_dashboard()
-    elif page == "Sales":
-        render_sales_page()
-    elif page == "Expenses":
-        render_placeholder_admin_page("Expenses", "Expense tracking is not connected in this SQLite ordering version yet.")
-    elif page == "Customer Orders":
+    elif page == "Live Orders":
         render_admin_orders()
-    elif page == "Menu and Services Management":
+    elif page == "Menu Management":
         render_admin_menu()
-    elif page == "Daily Records":
-        render_placeholder_admin_page("Daily Records", "Daily cash reconciliation can be added after sales and expenses are connected.")
     elif page == "Reports":
         render_reports_page()
     elif page == "Settings":

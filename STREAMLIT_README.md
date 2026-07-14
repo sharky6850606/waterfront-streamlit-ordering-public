@@ -1,6 +1,6 @@
-# Waterfront Streamlit Ordering App
+# Waterfront Snack Bar Streamlit Ordering App
 
-This is a Streamlit launch version of the existing restaurant ordering app. It uses the same SQLite database at `prisma/dev.db`, so your current menu and orders remain available.
+This is a Streamlit launch version of the existing Waterfront ordering app. It uses the same SQLite database path at `prisma/dev.db` and keeps the current order/menu workflow intact.
 
 ## Run locally
 
@@ -73,6 +73,7 @@ The app will not crash if the logo is missing.
 
 ## What this version includes
 
+- Public customer home, menu, order, track, business info, and contact pages
 - Menu browsing with existing food photos
 - Cart and quantity management
 - Delivery or self pickup
@@ -81,8 +82,8 @@ The app will not crash if the logo is missing.
 - Cash payment note
 - Order number generation
 - Customer order tracking
-- Admin live order view
-- Chef-friendly order board grouped by status
+- Protected admin dashboard
+- Chef-friendly live order board grouped by status
 - Admin status updates
 - Admin menu availability toggles
 - Quick category and menu item creation
@@ -90,10 +91,9 @@ The app will not crash if the logo is missing.
 
 ## Recommended next improvements
 
-- Move from SQLite to PostgreSQL before public internet launch.
+- Move from SQLite to PostgreSQL before heavy public usage.
 - Add user-friendly payment confirmation if you start accepting online payment.
 - Add WhatsApp or SMS notifications for new order and status updates.
 - Add kitchen prep-time estimates and pickup time slots.
 - Add daily opening hours and stop ordering when closed.
-- Add better admin accounts instead of one shared Streamlit password.
 - Add backups for `prisma/dev.db` before every busy service period.
