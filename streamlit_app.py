@@ -7,7 +7,6 @@ import mimetypes
 import os
 import random
 import sqlite3
-from textwrap import dedent
 from datetime import datetime, timedelta
 from io import StringIO
 from pathlib import Path
@@ -800,38 +799,7 @@ def render_css() -> None:
             box-shadow: 0 16px 34px rgba(52, 39, 23, .07);
             font-size: 1rem;
         }
-        div[data-testid="stRadio"] {
-            margin: .2rem 0 2.2rem;
-        }
-        div[data-testid="stRadio"] > div {
-            gap: .42rem;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-        div[data-testid="stRadio"] label {
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            min-width: 6.3rem;
-            min-height: 3rem;
-            padding: 0 .9rem;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(255, 253, 248, .9);
-            box-shadow: 0 12px 28px rgba(52, 39, 23, .05);
-        }
-        div[data-testid="stRadio"] label:has(input:checked) {
-            background: linear-gradient(180deg, #0f7180, #0e5967);
-            color: #ffffff;
-            border-color: rgba(14, 89, 103, .36);
-        }
-        div[data-testid="stRadio"] label:has(input:checked) p {
-            color: #ffffff;
-            font-weight: 800;
-        }
-        div[data-testid="stRadio"] label > div:first-child {
-            display: none;
-        }
+        .nav-spacer { margin-top: .25rem; margin-bottom: .4rem; }
         .order-card, .cart-card {
             border: 1px solid var(--line);
             background: rgba(255, 253, 248, .95);
@@ -1036,8 +1004,6 @@ def render_css() -> None:
         }
         @media (max-width: 760px) {
             .topbar { position: static; align-items: flex-start; flex-direction: column; }
-            div[data-testid="stRadio"] > div { align-items: stretch; }
-            div[data-testid="stRadio"] label { min-width: calc(50% - .4rem); }
             .stat-strip { grid-template-columns: 1fr; }
             .cart-card { grid-template-columns: 4.75rem minmax(0, 1fr); }
             .cart-thumb { width: 4.75rem; height: 4.75rem; }
@@ -1177,22 +1143,26 @@ def render_menu() -> None:
                         else '<span class="menu-badge is-unavailable">Unavailable</span>'
                     )
                     st.markdown(
-                        dedent(f"""
+                        f"""
                         <div class="menu-card">
                           <div class="menu-card-media">{image_markup}</div>
-                          <div class="menu-card-body">
-                            <div class="menu-badge-row">
-                              {availability_badge}
-                              <span class="menu-badge is-price">{money(item["priceTala"])}</span>
-                              {badge_markup}
-                            </div>
-                            <div class="menu-title">{escape(item["name"])}</div>
-                            <div class="muted">{escape(item["description"])}</div>
-                          </div>
                         </div>
-                        """),
+                        """,
                         unsafe_allow_html=True,
                     )
+                    st.markdown(
+                        f"""
+                        <div class="menu-badge-row">
+                          {availability_badge}
+                          <span class="menu-badge is-price">{money(item["priceTala"])}</span>
+                          {badge_markup}
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(f"### {item['name']}")
+                    if item["description"]:
+                        st.write(item["description"])
 
                     if not item["isAvailable"]:
                         continue
@@ -1563,27 +1533,25 @@ def render_topbar() -> None:
 
 def render_navigation() -> str:
     admin_label = "Admin dashboard" if st.session_state.admin_authenticated else "Staff login"
-    options = ["Order", f"Checkout ({cart_count()})", "Track", admin_label]
-    current = st.session_state.view
-    if current == "Checkout":
-        current = f"Checkout ({cart_count()})"
-    if current == "Admin":
-        current = admin_label
-    selected = st.radio(
-        "Navigation",
-        options,
-        horizontal=True,
-        label_visibility="collapsed",
-        index=options.index(current) if current in options else 0,
-    )
-    if selected.startswith("Checkout"):
-        view = "Checkout"
-    elif selected in {"Staff login", "Admin dashboard"}:
-        view = "Admin"
-    else:
-        view = selected
-    st.session_state.view = view
-    return view
+    nav_items = [
+        ("Order", "Order"),
+        ("Checkout", f"Checkout ({cart_count()})"),
+        ("Track", "Track"),
+        ("Admin", admin_label),
+    ]
+    st.markdown('<div class="nav-spacer"></div>', unsafe_allow_html=True)
+    columns = st.columns([0.11, 0.15, 0.11, 0.16, 0.47])
+    for column, (view, label) in zip(columns, nav_items):
+        with column:
+            if st.button(
+                label,
+                key=f"nav-{view}",
+                type="primary" if st.session_state.view == view else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state.view = view
+                st.rerun()
+    return st.session_state.view
 
 
 def main() -> None:
