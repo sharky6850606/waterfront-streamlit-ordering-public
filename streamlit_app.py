@@ -724,6 +724,8 @@ def ensure_state() -> None:
     st.session_state.setdefault("fulfillment_type", "DELIVERY")
     st.session_state.setdefault("admin_authenticated", False)
     st.session_state.setdefault("last_order_number", "")
+    st.session_state.setdefault("completed_order_number", "")
+    st.session_state.setdefault("track_order_number", "")
     st.session_state.setdefault("view", "Order")
     st.session_state.setdefault("cart_notice", "")
 
@@ -1056,6 +1058,64 @@ def render_css() -> None:
             margin-top: 0;
             font-size: 1.85rem;
         }
+        .complete-card {
+            max-width: 44rem;
+            margin: 2.5rem auto 1.5rem;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+            background:
+                linear-gradient(180deg, rgba(14, 89, 103, .06), rgba(212, 111, 44, .05)),
+                rgba(255, 253, 248, .96);
+            box-shadow: 0 22px 54px rgba(52, 39, 23, .1);
+        }
+        .complete-card h1 {
+            margin: 0 0 .55rem;
+            color: var(--brand-dark);
+            font-size: clamp(2rem, 4vw, 3rem);
+        }
+        .order-code {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin: 1rem 0;
+            padding: .75rem 1rem;
+            border-radius: 8px;
+            background: #102a33;
+            color: #fffaf1;
+            font-weight: 900;
+            letter-spacing: .04em;
+        }
+        .admin-order-meta {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            margin-bottom: .8rem;
+        }
+        .admin-order-lines {
+            margin: .8rem 0 1rem;
+            padding: .85rem 1rem;
+            border-radius: 8px;
+            background: rgba(14, 89, 103, .06);
+            border: 1px solid rgba(14, 89, 103, .12);
+        }
+        .admin-order-line {
+            display: flex;
+            justify-content: space-between;
+            gap: .9rem;
+            padding: .35rem 0;
+            border-bottom: 1px solid rgba(14, 89, 103, .09);
+        }
+        .admin-order-line:last-child { border-bottom: 0; }
+        .admin-order-context {
+            display: grid;
+            gap: .35rem;
+            margin-bottom: .85rem;
+            color: var(--muted);
+        }
         .admin-hero {
             border-radius: 8px;
             padding: 1.35rem 1.45rem;
@@ -1184,6 +1244,60 @@ def render_order(order: dict[str, Any], admin: bool = False) -> None:
             st.info(f"Delivery location: {order['deliveryAddress']}")
         if order["notes"]:
             st.caption(f"Notes: {order['notes']}")
+
+
+def render_admin_order_card(order: dict[str, Any]) -> None:
+    items = get_order_items(order["id"])
+    item_lines = "".join(
+        f"""
+        <div class="admin-order-line">
+          <span>{int(item["quantity"])} x {escape(item["itemNameSnapshot"])}</span>
+          <strong>{money(item["lineTotalTala"])}</strong>
+        </div>
+        """
+        for item in items
+    )
+    context_lines = []
+    if order["deliveryAddress"]:
+        context_lines.append(f"<div><strong>Delivery:</strong> {escape(order['deliveryAddress'])}</div>")
+    if order["notes"]:
+        context_lines.append(f"<div><strong>Notes:</strong> {escape(order['notes'])}</div>")
+
+    with st.container(border=True):
+        st.markdown(
+            f"""
+            <div class="admin-order-meta">
+              <div>
+                <div class="menu-title">{escape(order["orderNumber"])}</div>
+                <div class="muted">{escape(order["customerName"])} - {escape(order["customerPhone"])}</div>
+                <div class="muted">{escape(order["fulfillmentType"].title())} - {escape(order["createdAt"])}</div>
+              </div>
+              <div style="text-align:right;">
+                <span class="pill {status_class(order["status"])}">{escape(STATUS_LABELS.get(order["status"], order["status"]))}</span>
+                <div class="price" style="margin-top:.35rem;">{money(order["totalTala"])}</div>
+              </div>
+            </div>
+            <div class="admin-order-lines">{item_lines}</div>
+            <div class="admin-order-context">{"".join(context_lines)}</div>
+            """,
+            unsafe_allow_html=True,
+        )
+        status_col, button_col = st.columns([0.72, 0.28])
+        next_statuses = list(STATUS_LABELS.keys())
+        with status_col:
+            selected_status = st.selectbox(
+                "Order status",
+                next_statuses,
+                index=next_statuses.index(order["status"]),
+                format_func=lambda value: STATUS_LABELS[value],
+                key=f"status-{order['id']}",
+            )
+        with button_col:
+            st.markdown("<div style='height:1.8rem;'></div>", unsafe_allow_html=True)
+            if st.button("Update", key=f"update-{order['id']}", type="primary", use_container_width=True):
+                update_order_status(order["id"], selected_status)
+                st.success(f"Updated {order['orderNumber']} to {STATUS_LABELS[selected_status]}.")
+                st.rerun()
 
 
 def render_promo_strip(menu: list[dict[str, Any]]) -> None:
@@ -1363,7 +1477,9 @@ def render_checkout() -> None:
             else:
                 try:
                     order_number = create_order(name, phone, address, notes)
-                    st.success(f"Order placed. Your order number is {order_number}.")
+                    st.session_state.completed_order_number = order_number
+                    st.session_state.track_order_number = order_number
+                    st.session_state.view = "OrderComplete"
                     st.rerun()
                 except Exception as exc:
                     st.error(str(exc))
@@ -1411,8 +1527,32 @@ def render_checkout() -> None:
         st.write(f"Total: **{money(total)}**")
         st.caption("Payment method: Cash")
 
-        if st.session_state.last_order_number:
-            st.success(f"Last order: {st.session_state.last_order_number}")
+
+def render_order_complete() -> None:
+    order_number = st.session_state.get("completed_order_number") or st.session_state.get("last_order_number")
+    st.markdown(
+        f"""
+        <div class="complete-card">
+          <h1>Order complete</h1>
+          <p class="muted">Your order has been sent to the Waterfront team.</p>
+          <div class="order-code">{escape(order_number or "Order received")}</div>
+          <p class="muted">Keep this code so you can check your order status.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    left, middle, right = st.columns([0.35, 0.3, 0.35])
+    with middle:
+        if st.button("Track order", type="primary", use_container_width=True):
+            st.session_state.track_order_number = order_number or ""
+            if order_number:
+                st.session_state.tracked_orders = find_orders(order_number=order_number)
+            set_view("Track")
+            st.rerun()
+        if st.button("Start another order", use_container_width=True):
+            st.session_state.completed_order_number = ""
+            set_view("Order")
+            st.rerun()
 
 
 def render_track_order() -> None:
@@ -1420,11 +1560,16 @@ def render_track_order() -> None:
     st.caption("Search by order number for the exact order, or by phone number for recent orders.")
     col_a, col_b = st.columns(2)
     with col_a:
-        order_number = st.text_input("Order number", placeholder="ORD-260714-1234")
+        order_number = st.text_input(
+            "Order number",
+            value=st.session_state.get("track_order_number", ""),
+            placeholder="ORD-260714-1234",
+        )
     with col_b:
         phone = st.text_input("Phone number")
 
     if st.button("Search orders", type="primary"):
+        st.session_state.track_order_number = order_number
         st.session_state.tracked_orders = find_orders(phone=phone, order_number=order_number)
 
     orders = st.session_state.get("tracked_orders", [])
@@ -1492,19 +1637,7 @@ def render_admin_orders() -> None:
         return
 
     for order in visible_orders:
-        render_order(order, admin=True)
-        next_statuses = list(STATUS_LABELS.keys())
-        selected_status = st.selectbox(
-            "Set status",
-            next_statuses,
-            index=next_statuses.index(order["status"]),
-            format_func=lambda value: STATUS_LABELS[value],
-            key=f"status-{order['id']}",
-        )
-        if st.button("Update status", key=f"update-{order['id']}"):
-            update_order_status(order["id"], selected_status)
-            st.success(f"Updated {order['orderNumber']} to {STATUS_LABELS[selected_status]}.")
-            st.rerun()
+        render_admin_order_card(order)
 
 
 def render_admin_menu() -> None:
@@ -1725,12 +1858,15 @@ def main() -> None:
         return
     render_topbar()
     view = render_navigation()
-    render_floating_cart()
+    if view != "OrderComplete":
+        render_floating_cart()
 
     if view == "Order":
         render_menu()
     elif view == "Checkout":
         render_checkout()
+    elif view == "OrderComplete":
+        render_order_complete()
     elif view == "Track":
         render_track_order()
     elif view == "Admin":
