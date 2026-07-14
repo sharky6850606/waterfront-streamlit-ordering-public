@@ -8,11 +8,12 @@ import os
 import random
 import sqlite3
 from datetime import datetime, timedelta
-from io import StringIO
+from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Any
 
 import streamlit as st
+from PIL import Image
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -20,6 +21,7 @@ DB_PATH = APP_DIR / "prisma" / "dev.db"
 PUBLIC_DIR = APP_DIR / "public"
 DELIVERY_FEE_TALA = 2.0
 ADMIN_PASSWORD = os.getenv("STREAMLIT_ADMIN_PASSWORD", "admin123")
+_DATABASE_READY = False
 
 STATUS_LABELS = {
     "NEW": "New",
@@ -42,6 +44,9 @@ def connect() -> sqlite3.Connection:
 
 
 def ensure_database() -> None:
+    global _DATABASE_READY
+    if _DATABASE_READY:
+        return
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     timestamp = now_value()
     with sqlite3.connect(DB_PATH) as conn:
@@ -147,6 +152,7 @@ def ensure_database() -> None:
 
         if conn.execute("SELECT COUNT(*) FROM MenuItem").fetchone()[0] > 0:
             conn.commit()
+            _DATABASE_READY = True
             return
 
         food_id = conn.execute(
@@ -242,11 +248,21 @@ def image_path(image_url: str | None) -> Path | None:
 
 
 @st.cache_data(show_spinner=False)
-def image_data_uri(path_value: str) -> str:
+def image_data_uri(path_value: str, max_width: int = 900) -> str:
     path = Path(path_value)
-    mime_type = mimetypes.guess_type(path.name)[0] or "image/png"
-    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
-    return f"data:{mime_type};base64,{encoded}"
+    try:
+        with Image.open(path) as image:
+            image.thumbnail((max_width, max_width), Image.Resampling.LANCZOS)
+            if image.mode not in {"RGB", "L"}:
+                image = image.convert("RGB")
+            buffer = BytesIO()
+            image.save(buffer, format="JPEG", quality=78, optimize=True)
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return f"data:image/jpeg;base64,{encoded}"
+    except Exception:
+        mime_type = mimetypes.guess_type(path.name)[0] or "image/png"
+        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        return f"data:{mime_type};base64,{encoded}"
 
 
 def is_active_until(value: str | None) -> bool:
@@ -941,6 +957,51 @@ def render_css() -> None:
             color: var(--muted);
             font-weight: 800;
         }
+        .floating-cart {
+            position: fixed;
+            right: 1.1rem;
+            bottom: 1.1rem;
+            z-index: 999;
+            display: inline-flex;
+            align-items: center;
+            gap: .65rem;
+            min-width: 13rem;
+            justify-content: space-between;
+            padding: .85rem 1rem;
+            border-radius: 8px;
+            background: linear-gradient(135deg, var(--brand), #123f49);
+            color: #fffaf1 !important;
+            text-decoration: none !important;
+            box-shadow: 0 22px 48px rgba(16, 42, 51, .26);
+            border: 1px solid rgba(255, 255, 255, .18);
+            font-weight: 850;
+        }
+        .floating-cart:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 26px 54px rgba(16, 42, 51, .3);
+        }
+        .floating-cart span {
+            display: block;
+            color: rgba(255, 250, 241, .76);
+            font-size: .78rem;
+            font-weight: 700;
+        }
+        .floating-cart strong {
+            display: block;
+            color: #fffaf1;
+            font-size: .98rem;
+        }
+        .floating-cart .cart-count {
+            min-width: 2.2rem;
+            min-height: 2.2rem;
+            border-radius: 999px;
+            display: grid;
+            place-items: center;
+            background: rgba(255, 250, 241, .18);
+            color: #fffaf1;
+            font-size: 1rem;
+            font-weight: 900;
+        }
         .stat-strip {
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1091,6 +1152,12 @@ def render_css() -> None:
             .stat-strip { grid-template-columns: 1fr; }
             .cart-card { grid-template-columns: 4.75rem minmax(0, 1fr); }
             .cart-thumb { width: 4.75rem; height: 4.75rem; }
+            .floating-cart {
+                left: .85rem;
+                right: .85rem;
+                bottom: .85rem;
+                min-width: 0;
+            }
             .block-container { padding-left: .9rem; padding-right: .9rem; }
         }
         </style>
@@ -1330,7 +1397,7 @@ def render_checkout() -> None:
     with right:
         st.subheader("Your cart")
         if not st.session_state.cart:
-            st.info("Your cart is empty. Add items from the Menu tab.")
+            st.info("Your cart is empty. Add items from Order first.")
         for index, item in enumerate(list(st.session_state.cart)):
             thumb_path = image_path(item.get("image_url"))
             thumb_markup = (
@@ -1629,16 +1696,46 @@ def render_topbar() -> None:
     )
 
 
+def sync_view_from_query() -> None:
+    requested_view = st.query_params.get("view")
+    if isinstance(requested_view, list):
+        requested_view = requested_view[0] if requested_view else None
+    if requested_view in {"Order", "Checkout", "Track", "Admin"}:
+        st.session_state.view = requested_view
+
+
+def set_view(view: str) -> None:
+    st.session_state.view = view
+    st.query_params["view"] = view
+
+
+def render_floating_cart() -> None:
+    _, _, total = cart_total()
+    count = cart_count()
+    label = "Checkout" if count else "Cart empty"
+    st.markdown(
+        f"""
+        <a class="floating-cart" href="?view=Checkout" aria-label="Open checkout">
+          <div>
+            <strong>{escape(label)}</strong>
+            <span>{money(total)}</span>
+          </div>
+          <div class="cart-count">{count}</div>
+        </a>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_navigation() -> str:
     admin_label = "Admin dashboard" if st.session_state.admin_authenticated else "Staff login"
     nav_items = [
         ("Order", "Order"),
-        ("Checkout", f"Checkout ({cart_count()})"),
         ("Track", "Track"),
         ("Admin", admin_label),
     ]
     st.markdown('<div class="nav-spacer"></div>', unsafe_allow_html=True)
-    columns = st.columns([0.11, 0.15, 0.11, 0.16, 0.47])
+    columns = st.columns([0.11, 0.11, 0.16, 0.62])
     for column, (view, label) in zip(columns, nav_items):
         with column:
             if st.button(
@@ -1647,7 +1744,7 @@ def render_navigation() -> str:
                 type="primary" if st.session_state.view == view else "secondary",
                 use_container_width=True,
             ):
-                st.session_state.view = view
+                set_view(view)
                 st.rerun()
     return st.session_state.view
 
@@ -1660,6 +1757,7 @@ def main() -> None:
         initial_sidebar_state="collapsed",
     )
     ensure_state()
+    sync_view_from_query()
     render_css()
     if st.session_state.cart_notice:
         st.toast(st.session_state.cart_notice)
@@ -1669,6 +1767,7 @@ def main() -> None:
         return
     render_topbar()
     view = render_navigation()
+    render_floating_cart()
 
     if view == "Order":
         render_menu()
