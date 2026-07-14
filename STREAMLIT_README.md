@@ -36,19 +36,40 @@ http://YOUR-COMPUTER-IP:8501
 
 ## Admin
 
-Default Streamlit admin password:
+Recommended Streamlit Secrets:
 
-```text
-admin123
+```toml
+[admin]
+username = "admin"
+password = "replace-with-a-strong-password"
 ```
 
-Before real use, set an environment variable:
+You can also use a SHA-256 or PBKDF2 password hash:
+
+```toml
+[admin]
+username = "admin"
+password_hash = "sha256$your_hash_here"
+```
+
+Environment variable fallback is also supported:
 
 ```bash
+set STREAMLIT_ADMIN_USERNAME=admin
 set STREAMLIT_ADMIN_PASSWORD=your-new-password
 ```
 
-Then launch Streamlit from that same terminal.
+If no secret or environment variable is configured, the local fallback is `admin` / `admin123`. Change this before sharing the app widely.
+
+## Logo
+
+Add your logo here:
+
+```text
+assets/waterfront_logo.png
+```
+
+The app will not crash if the logo is missing.
 
 ## What this version includes
 
@@ -61,6 +82,7 @@ Then launch Streamlit from that same terminal.
 - Order number generation
 - Customer order tracking
 - Admin live order view
+- Chef-friendly order board grouped by status
 - Admin status updates
 - Admin menu availability toggles
 - Quick category and menu item creation
