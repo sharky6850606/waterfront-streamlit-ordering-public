@@ -63,6 +63,8 @@ Then launch Streamlit from that same terminal.
 - Admin live order view
 - Admin status updates
 - Admin menu availability toggles
+- Admin promotion controls for Featured, New, and Specials
+- Customer promo strip for Featured, New, Specials, and real best sellers
 - Quick category and menu item creation
 - CSV export for recent orders
 

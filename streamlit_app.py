@@ -7,7 +7,7 @@ import mimetypes
 import os
 import random
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import StringIO
 from pathlib import Path
 from typing import Any
@@ -42,9 +42,6 @@ def connect() -> sqlite3.Connection:
 
 
 def ensure_database() -> None:
-    if DB_PATH.exists():
-        return
-
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     timestamp = now_value()
     with sqlite3.connect(DB_PATH) as conn:
@@ -69,6 +66,11 @@ def ensure_database() -> None:
                 imageUrl TEXT,
                 isAvailable BOOLEAN NOT NULL DEFAULT 1,
                 isFeatured BOOLEAN NOT NULL DEFAULT 0,
+                isNew BOOLEAN NOT NULL DEFAULT 0,
+                newUntil TEXT,
+                isSpecial BOOLEAN NOT NULL DEFAULT 0,
+                specialLabel TEXT,
+                specialUntil TEXT,
                 createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updatedAt DATETIME NOT NULL,
                 FOREIGN KEY (categoryId) REFERENCES Category (id)
@@ -127,6 +129,25 @@ def ensure_database() -> None:
                 ON OrderItem(orderId);
             """
         )
+
+        existing_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(MenuItem)").fetchall()
+        }
+        promotion_columns = {
+            "isFeatured": "BOOLEAN NOT NULL DEFAULT 0",
+            "isNew": "BOOLEAN NOT NULL DEFAULT 0",
+            "newUntil": "TEXT",
+            "isSpecial": "BOOLEAN NOT NULL DEFAULT 0",
+            "specialLabel": "TEXT",
+            "specialUntil": "TEXT",
+        }
+        for column_name, column_definition in promotion_columns.items():
+            if column_name not in existing_columns:
+                conn.execute(f"ALTER TABLE MenuItem ADD COLUMN {column_name} {column_definition}")
+
+        if conn.execute("SELECT COUNT(*) FROM MenuItem").fetchone()[0] > 0:
+            conn.commit()
+            return
 
         food_id = conn.execute(
             """
@@ -191,6 +212,19 @@ def money(value: float | int | str | None) -> str:
     return f"{float(value or 0):.2f} tala"
 
 
+def today_iso() -> str:
+    return datetime.now().date().isoformat()
+
+
+def parse_iso_date(value: str | None, fallback_days: int = 7):
+    if value:
+        try:
+            return datetime.strptime(value, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    return (datetime.now().date() + timedelta(days=fallback_days))
+
+
 def escape(value: Any) -> str:
     return html.escape(str(value or ""))
 
@@ -215,6 +249,10 @@ def image_data_uri(path_value: str) -> str:
     return f"data:{mime_type};base64,{encoded}"
 
 
+def is_active_until(value: str | None) -> bool:
+    return not value or value >= today_iso()
+
+
 @st.cache_data(ttl=5)
 def get_menu() -> list[dict[str, Any]]:
     with connect() as conn:
@@ -231,7 +269,9 @@ def get_menu() -> list[dict[str, Any]]:
         for category in categories:
             items = conn.execute(
                 """
-                SELECT id, categoryId, name, description, priceTala, imageUrl, isAvailable
+                SELECT
+                    id, categoryId, name, description, priceTala, imageUrl, isAvailable,
+                    isFeatured, isNew, newUntil, isSpecial, specialLabel, specialUntil
                 FROM MenuItem
                 WHERE categoryId = ?
                 ORDER BY isAvailable DESC, name ASC
@@ -268,6 +308,54 @@ def get_categories() -> list[dict[str, Any]]:
             "SELECT id, name FROM Category WHERE isActive = 1 ORDER BY sortOrder ASC, name ASC"
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+@st.cache_data(ttl=10)
+def get_best_seller_ids(limit: int = 6) -> list[int]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT oi.menuItemId, SUM(oi.quantity) AS sold
+            FROM OrderItem oi
+            JOIN "Order" o ON o.id = oi.orderId
+            WHERE o.status != 'CANCELLED'
+            GROUP BY oi.menuItemId
+            ORDER BY sold DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [int(row["menuItemId"]) for row in rows]
+
+
+def promotion_badges(item: dict[str, Any], best_seller_ids: set[int] | None = None) -> list[str]:
+    badges = []
+    best_seller_ids = best_seller_ids or set()
+    if item["id"] in best_seller_ids:
+        badges.append("Best seller")
+    if item.get("isFeatured"):
+        badges.append("Featured")
+    if item.get("isNew") and is_active_until(item.get("newUntil")):
+        badges.append("New")
+    if item.get("isSpecial") and is_active_until(item.get("specialUntil")):
+        badges.append(item.get("specialLabel") or "Special")
+    return badges
+
+
+def promoted_menu_items(menu: list[dict[str, Any]], limit: int = 8) -> list[dict[str, Any]]:
+    best_seller_ids = set(get_best_seller_ids())
+    promoted = []
+    seen = set()
+    for category in menu:
+        for item in category["items"]:
+            if not item["isAvailable"]:
+                continue
+            badges = promotion_badges(item, best_seller_ids)
+            if not badges or item["id"] in seen:
+                continue
+            promoted.append({**item, "promoBadges": badges[:3]})
+            seen.add(item["id"])
+    return promoted[:limit]
 
 
 @st.cache_data(ttl=5)
@@ -507,6 +595,43 @@ def update_item_availability(item_id: int, is_available: bool) -> None:
     st.cache_data.clear()
 
 
+def update_item_promotions(
+    item_id: int,
+    is_featured: bool,
+    is_new: bool,
+    new_until: str | None,
+    is_special: bool,
+    special_label: str,
+    special_until: str | None,
+) -> None:
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE MenuItem
+            SET isFeatured = ?,
+                isNew = ?,
+                newUntil = ?,
+                isSpecial = ?,
+                specialLabel = ?,
+                specialUntil = ?,
+                updatedAt = ?
+            WHERE id = ?
+            """,
+            (
+                1 if is_featured else 0,
+                1 if is_new else 0,
+                new_until if is_new else None,
+                1 if is_special else 0,
+                special_label.strip() if is_special and special_label.strip() else None,
+                special_until if is_special else None,
+                now_value(),
+                item_id,
+            ),
+        )
+        conn.commit()
+    st.cache_data.clear()
+
+
 def add_category(name: str) -> None:
     name = name.strip()
     if not name:
@@ -727,6 +852,35 @@ def render_css() -> None:
             background: #fee2e2;
             color: #991b1b;
         }
+        .promo-strip {
+            display: grid;
+            grid-auto-flow: column;
+            grid-auto-columns: minmax(14rem, 18rem);
+            gap: .85rem;
+            overflow-x: auto;
+            padding: .15rem .05rem .85rem;
+            margin-bottom: 1rem;
+        }
+        .promo-card {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: rgba(255, 253, 248, .98);
+            box-shadow: 0 14px 34px rgba(52, 39, 23, .08);
+            overflow: hidden;
+        }
+        .promo-card img,
+        .promo-card .menu-image {
+            width: 100%;
+            aspect-ratio: 5 / 3;
+            object-fit: cover;
+            border: 0;
+            border-radius: 0;
+        }
+        .promo-card-body {
+            display: grid;
+            gap: .35rem;
+            padding: .8rem;
+        }
         .menu-card-body {
             display: grid;
             gap: .45rem;
@@ -881,6 +1035,40 @@ def render_order(order: dict[str, Any], admin: bool = False) -> None:
             st.caption(f"Notes: {order['notes']}")
 
 
+def render_promo_strip(menu: list[dict[str, Any]]) -> None:
+    items = promoted_menu_items(menu)
+    if not items:
+        return
+
+    cards = []
+    for item in items:
+        path = image_path(item["imageUrl"])
+        image_markup = (
+            f'<img src="{image_data_uri(str(path))}" alt="{escape(item["name"])}">'
+            if path
+            else f'<div class="menu-image"><div><span class="menu-image-title">{escape(item["name"])}</span><span class="menu-image-subtitle">Photo coming soon</span></div></div>'
+        )
+        badges = "".join(
+            f'<span class="menu-badge">{escape(badge)}</span>'
+            for badge in item.get("promoBadges", [])
+        )
+        cards.append(
+            f"""
+            <div class="promo-card">
+              {image_markup}
+              <div class="promo-card-body">
+                <div class="menu-badge-row">{badges}</div>
+                <div class="menu-title">{escape(item["name"])}</div>
+                <div class="price">{money(item["priceTala"])}</div>
+              </div>
+            </div>
+            """
+        )
+
+    st.subheader("Featured, New & Specials")
+    st.markdown(f'<div class="promo-strip">{"".join(cards)}</div>', unsafe_allow_html=True)
+
+
 def render_menu() -> None:
     st.markdown(
         """
@@ -902,6 +1090,9 @@ def render_menu() -> None:
         st.warning("No active menu categories found. Add menu items in Admin.")
         return
 
+    render_promo_strip(menu)
+
+    best_seller_ids = set(get_best_seller_ids())
     for category in menu:
         if not category["items"]:
             continue
@@ -916,6 +1107,11 @@ def render_menu() -> None:
                         if path
                         else f'<div class="menu-image"><div><span class="menu-image-title">{escape(item["name"])}</span><span class="menu-image-subtitle">Photo coming soon</span></div></div>'
                     )
+                    badge_labels = promotion_badges(item, best_seller_ids)
+                    badge_markup = "".join(
+                        f'<span class="menu-badge">{escape(label)}</span>'
+                        for label in badge_labels[:3]
+                    )
                     availability_badge = (
                         '<span class="menu-badge">Available today</span>'
                         if item["isAvailable"]
@@ -929,6 +1125,7 @@ def render_menu() -> None:
                             <div class="menu-badge-row">
                               {availability_badge}
                               <span class="menu-badge is-price">{money(item["priceTala"])}</span>
+                              {badge_markup}
                             </div>
                             <div class="menu-title">{escape(item["name"])}</div>
                             <div class="muted">{escape(item["description"])}</div>
@@ -1156,13 +1353,63 @@ def render_admin_menu() -> None:
         for item in category["items"]:
             current = bool(item["isAvailable"])
             updated = st.toggle(
-                item["name"],
+                f"{item['name']} available",
                 value=current,
                 key=f"available-{item['id']}",
             )
             if updated != current:
                 update_item_availability(item["id"], updated)
                 st.rerun()
+            active_badges = promotion_badges(item, set(get_best_seller_ids()))
+            summary = ", ".join(active_badges) if active_badges else "No active badges"
+            with st.expander(f"Promotions for {item['name']} - {summary}"):
+                with st.form(f"promo-form-{item['id']}"):
+                    promo_col_a, promo_col_b, promo_col_c = st.columns(3)
+                    with promo_col_a:
+                        is_featured = st.checkbox(
+                            "Featured",
+                            value=bool(item.get("isFeatured")),
+                            key=f"featured-{item['id']}",
+                        )
+                    with promo_col_b:
+                        is_new = st.checkbox(
+                            "New item",
+                            value=bool(item.get("isNew")),
+                            key=f"is-new-{item['id']}",
+                        )
+                        new_until = st.date_input(
+                            "Show as new until",
+                            value=parse_iso_date(item.get("newUntil"), 7),
+                            key=f"new-until-{item['id']}",
+                        )
+                    with promo_col_c:
+                        is_special = st.checkbox(
+                            "Special",
+                            value=bool(item.get("isSpecial")),
+                            key=f"is-special-{item['id']}",
+                        )
+                        special_label = st.text_input(
+                            "Special badge text",
+                            value=item.get("specialLabel") or "Special",
+                            key=f"special-label-{item['id']}",
+                        )
+                        special_until = st.date_input(
+                            "Show special until",
+                            value=parse_iso_date(item.get("specialUntil"), 7),
+                            key=f"special-until-{item['id']}",
+                        )
+                    if st.form_submit_button("Save promotions", type="primary"):
+                        update_item_promotions(
+                            item["id"],
+                            is_featured,
+                            is_new,
+                            new_until.isoformat(),
+                            is_special,
+                            special_label,
+                            special_until.isoformat(),
+                        )
+                        st.success("Promotions saved.")
+                        st.rerun()
 
     st.divider()
     st.subheader("Add category")
