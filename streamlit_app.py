@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import csv
+import base64
 import html
+import mimetypes
 import os
 import random
 import sqlite3
@@ -205,6 +207,14 @@ def image_path(image_url: str | None) -> Path | None:
     return candidate if candidate.exists() else None
 
 
+@st.cache_data(show_spinner=False)
+def image_data_uri(path_value: str) -> str:
+    path = Path(path_value)
+    mime_type = mimetypes.guess_type(path.name)[0] or "image/png"
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
+
+
 @st.cache_data(ttl=5)
 def get_menu() -> list[dict[str, Any]]:
     with connect() as conn:
@@ -352,6 +362,7 @@ def add_to_cart(item: dict[str, Any], quantity: int, option_id: int | None = Non
             "name": name,
             "unit_price": unit_price,
             "quantity": quantity,
+            "image_url": item.get("imageUrl"),
         }
     )
     st.toast(f"Added {name}")
@@ -661,7 +672,7 @@ def render_css() -> None:
             padding: .35rem .55rem;
             box-shadow: 0 10px 24px rgba(52, 39, 23, .05);
         }
-        .menu-card, .order-card, .cart-card {
+        .order-card, .cart-card {
             border: 1px solid var(--line);
             background: rgba(255, 253, 248, .95);
             border-radius: 8px;
@@ -670,10 +681,81 @@ def render_css() -> None:
             margin-bottom: .8rem;
         }
         .menu-card {
-            min-height: 9.5rem;
+            border: 0;
+            background: transparent;
+            border-radius: 8px;
+            padding: 0;
+            box-shadow: none;
             display: grid;
-            align-content: start;
+            gap: .7rem;
+            margin-bottom: .35rem;
+        }
+        .menu-card-media {
+            position: relative;
+            overflow: hidden;
+            border-radius: 8px;
+        }
+        .menu-card-media img {
+            width: 100%;
+            aspect-ratio: 5 / 3;
+            object-fit: cover;
+            display: block;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+        }
+        .menu-badge-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: .4rem;
+            margin-bottom: .25rem;
+        }
+        .menu-badge {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: .22rem .62rem;
+            font-size: .76rem;
+            font-weight: 850;
+            background: rgba(14, 89, 103, .1);
+            color: var(--brand);
+        }
+        .menu-badge.is-price {
+            background: rgba(212, 111, 44, .14);
+            color: #94460e;
+        }
+        .menu-badge.is-unavailable {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .menu-card-body {
+            display: grid;
             gap: .45rem;
+            min-height: 8rem;
+        }
+        .menu-card-actions {
+            display: grid;
+            gap: .55rem;
+            padding-top: .2rem;
+        }
+        .cart-card {
+            display: grid;
+            grid-template-columns: 5.5rem minmax(0, 1fr);
+            gap: .85rem;
+            align-items: center;
+        }
+        .cart-thumb {
+            width: 5.5rem;
+            height: 5.5rem;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            background: #f3eadc;
+        }
+        .cart-thumb-placeholder {
+            display: grid;
+            place-items: center;
+            color: var(--muted);
+            font-weight: 800;
         }
         .stat-strip {
             display: grid;
@@ -744,6 +826,8 @@ def render_css() -> None:
         @media (max-width: 760px) {
             .topbar { position: static; align-items: flex-start; flex-direction: column; }
             .stat-strip { grid-template-columns: 1fr; }
+            .cart-card { grid-template-columns: 4.75rem minmax(0, 1fr); }
+            .cart-thumb { width: 4.75rem; height: 4.75rem; }
             .block-container { padding-left: .9rem; padding-right: .9rem; }
         }
         </style>
@@ -825,45 +909,59 @@ def render_menu() -> None:
         columns = st.columns(2)
         for index, item in enumerate(category["items"]):
             with columns[index % 2]:
-                path = image_path(item["imageUrl"])
-                if path:
-                    st.image(str(path), use_container_width=True)
-                st.markdown(
-                    f"""
-                    <div class="menu-card">
-                      <div class="menu-title">{escape(item["name"])}</div>
-                      <div class="muted">{escape(item["description"])}</div>
-                      <div class="price">{money(item["priceTala"])}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-                if not item["isAvailable"]:
-                    st.warning("Currently unavailable")
-                    continue
-
-                option_id = None
-                if item["options"]:
-                    option_choices = {option["id"]: f"{option['name']} - {money(option['priceTala'])}" for option in item["options"]}
-                    option_id = st.selectbox(
-                        "Choose option",
-                        list(option_choices.keys()),
-                        format_func=lambda option_key, choices=option_choices: choices[option_key],
-                        key=f"option-{item['id']}",
+                with st.container(border=True):
+                    path = image_path(item["imageUrl"])
+                    image_markup = (
+                        f'<img src="{image_data_uri(str(path))}" alt="{escape(item["name"])}">'
+                        if path
+                        else f'<div class="menu-image"><div><span class="menu-image-title">{escape(item["name"])}</span><span class="menu-image-subtitle">Photo coming soon</span></div></div>'
+                    )
+                    availability_badge = (
+                        '<span class="menu-badge">Available today</span>'
+                        if item["isAvailable"]
+                        else '<span class="menu-badge is-unavailable">Unavailable</span>'
+                    )
+                    st.markdown(
+                        f"""
+                        <div class="menu-card">
+                          <div class="menu-card-media">{image_markup}</div>
+                          <div class="menu-card-body">
+                            <div class="menu-badge-row">
+                              {availability_badge}
+                              <span class="menu-badge is-price">{money(item["priceTala"])}</span>
+                            </div>
+                            <div class="menu-title">{escape(item["name"])}</div>
+                            <div class="muted">{escape(item["description"])}</div>
+                          </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
                     )
 
-                quantity = st.number_input(
-                    "Qty",
-                    min_value=1,
-                    max_value=50,
-                    value=1,
-                    step=1,
-                    key=f"qty-{item['id']}",
-                )
-                if st.button("Add to cart", key=f"add-{item['id']}", type="primary", use_container_width=True):
-                    add_to_cart(item, int(quantity), option_id)
-                    st.rerun()
+                    if not item["isAvailable"]:
+                        continue
+
+                    option_id = None
+                    if item["options"]:
+                        option_choices = {option["id"]: f"{option['name']} - {money(option['priceTala'])}" for option in item["options"]}
+                        option_id = st.selectbox(
+                            "Choose option",
+                            list(option_choices.keys()),
+                            format_func=lambda option_key, choices=option_choices: choices[option_key],
+                            key=f"option-{item['id']}",
+                        )
+
+                    quantity = st.number_input(
+                        "Qty",
+                        min_value=1,
+                        max_value=50,
+                        value=1,
+                        step=1,
+                        key=f"qty-{item['id']}",
+                    )
+                    if st.button("Add to cart", key=f"add-{item['id']}", type="primary", use_container_width=True):
+                        add_to_cart(item, int(quantity), option_id)
+                        st.rerun()
 
 
 def render_checkout() -> None:
@@ -911,12 +1009,21 @@ def render_checkout() -> None:
         if not st.session_state.cart:
             st.info("Your cart is empty. Add items from the Menu tab.")
         for index, item in enumerate(list(st.session_state.cart)):
+            thumb_path = image_path(item.get("image_url"))
+            thumb_markup = (
+                f'<img class="cart-thumb" src="{image_data_uri(str(thumb_path))}" alt="{escape(item["name"])}">'
+                if thumb_path
+                else '<div class="cart-thumb cart-thumb-placeholder">WF</div>'
+            )
             st.markdown(
                 f"""
                 <div class="cart-card">
-                  <div class="menu-title">{escape(item["name"])}</div>
-                  <div class="muted">{money(item["unit_price"])} each</div>
-                  <div class="price">{money(float(item["unit_price"]) * int(item["quantity"]))}</div>
+                  {thumb_markup}
+                  <div>
+                    <div class="menu-title">{escape(item["name"])}</div>
+                    <div class="muted">{money(item["unit_price"])} each</div>
+                    <div class="price">{money(float(item["unit_price"]) * int(item["quantity"]))}</div>
+                  </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
