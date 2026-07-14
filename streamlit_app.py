@@ -342,6 +342,17 @@ def promotion_badges(item: dict[str, Any], best_seller_ids: set[int] | None = No
     return badges
 
 
+def badge_class(label: str) -> str:
+    normalized = label.lower()
+    if "best" in normalized:
+        return "is-best"
+    if "featured" in normalized:
+        return "is-featured"
+    if "new" in normalized:
+        return "is-new"
+    return "is-special"
+
+
 def promoted_menu_items(menu: list[dict[str, Any]], limit: int = 8) -> list[dict[str, Any]]:
     best_seller_ids = set(get_best_seller_ids())
     promoted = []
@@ -851,6 +862,22 @@ def render_css() -> None:
             background: rgba(212, 111, 44, .14);
             color: #94460e;
         }
+        .menu-badge.is-best {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        .menu-badge.is-featured {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+        .menu-badge.is-new {
+            background: #dcfce7;
+            color: #166534;
+        }
+        .menu-badge.is-special {
+            background: #fae8ff;
+            color: #86198f;
+        }
         .menu-badge.is-unavailable {
             background: #fee2e2;
             color: #991b1b;
@@ -993,6 +1020,62 @@ def render_css() -> None:
             margin-top: 0;
             font-size: 1.85rem;
         }
+        .admin-hero {
+            border-radius: 8px;
+            padding: 1.35rem 1.45rem;
+            margin-bottom: 1rem;
+            color: #fffaf1;
+            background:
+                linear-gradient(135deg, rgba(14, 89, 103, .96), rgba(212, 111, 44, .82)),
+                #0e5967;
+            box-shadow: 0 22px 54px rgba(52, 39, 23, .14);
+        }
+        .admin-hero h1 {
+            margin: 0 0 .35rem;
+            color: #fffaf1;
+            font-size: clamp(2rem, 4vw, 3.1rem);
+        }
+        .admin-hero p {
+            margin: 0;
+            color: rgba(255, 250, 241, .86);
+            font-size: 1.05rem;
+        }
+        .admin-stat-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: .85rem;
+            margin: 1rem 0 1.25rem;
+        }
+        .admin-stat-card {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 1rem;
+            background: rgba(255, 253, 248, .96);
+            box-shadow: 0 16px 38px rgba(52, 39, 23, .08);
+            border-top: 5px solid var(--brand);
+        }
+        .admin-stat-card.is-new { border-top-color: #d46f2c; }
+        .admin-stat-card.is-ready { border-top-color: #167a4a; }
+        .admin-stat-card.is-sales { border-top-color: #7c3aed; }
+        .admin-stat-card span {
+            display: block;
+            color: var(--muted);
+            font-size: .86rem;
+            font-weight: 700;
+        }
+        .admin-stat-card strong {
+            display: block;
+            margin-top: .25rem;
+            color: var(--brand-dark);
+            font-size: 1.65rem;
+        }
+        .admin-panel {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 1rem;
+            background: rgba(255, 253, 248, .66);
+            box-shadow: 0 14px 36px rgba(52, 39, 23, .05);
+        }
         div[data-testid="stImage"] img {
             border-radius: 8px;
             border: 1px solid var(--line);
@@ -1004,6 +1087,7 @@ def render_css() -> None:
         }
         @media (max-width: 760px) {
             .topbar { position: static; align-items: flex-start; flex-direction: column; }
+            .admin-stat-grid { grid-template-columns: 1fr 1fr; }
             .stat-strip { grid-template-columns: 1fr; }
             .cart-card { grid-template-columns: 4.75rem minmax(0, 1fr); }
             .cart-thumb { width: 4.75rem; height: 4.75rem; }
@@ -1074,7 +1158,7 @@ def render_promo_strip(menu: list[dict[str, Any]]) -> None:
             else f'<div class="menu-image"><div><span class="menu-image-title">{escape(item["name"])}</span><span class="menu-image-subtitle">Photo coming soon</span></div></div>'
         )
         badges = "".join(
-            f'<span class="menu-badge">{escape(badge)}</span>'
+            f'<span class="menu-badge {badge_class(badge)}">{escape(badge)}</span>'
             for badge in item.get("promoBadges", [])
         )
         cards.append(
@@ -1134,7 +1218,7 @@ def render_menu() -> None:
                     )
                     badge_labels = promotion_badges(item, best_seller_ids)
                     badge_markup = "".join(
-                        f'<span class="menu-badge">{escape(label)}</span>'
+                        f'<span class="menu-badge {badge_class(label)}">{escape(label)}</span>'
                         for label in badge_labels[:3]
                     )
                     availability_badge = (
@@ -1341,13 +1425,6 @@ def render_admin_login() -> bool:
 def render_admin_orders() -> None:
     orders = get_recent_orders()
     active = [order for order in orders if order["status"] in ACTIVE_STATUSES]
-    new_count = sum(1 for order in orders if order["status"] == "NEW")
-    today_total = sum(float(order["totalTala"]) for order in orders if str(order["createdAt"])[:10] == now_value()[:10])
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Active orders", len(active))
-    c2.metric("New orders", new_count)
-    c3.metric("Today's sales", money(today_total))
 
     st.download_button(
         "Download recent orders CSV",
@@ -1492,10 +1569,29 @@ def render_admin() -> None:
     if not render_admin_login():
         return
 
-    col_title, col_action, col_logout = st.columns([1.4, .55, .45])
-    with col_title:
-        st.header("Admin dashboard")
-        st.caption("Live order control room")
+    orders = get_recent_orders()
+    active = [order for order in orders if order["status"] in ACTIVE_STATUSES]
+    new_count = sum(1 for order in orders if order["status"] == "NEW")
+    ready_count = sum(1 for order in orders if order["status"] in {"READY_FOR_PICKUP", "OUT_FOR_DELIVERY"})
+    today_total = sum(float(order["totalTala"]) for order in orders if str(order["createdAt"])[:10] == now_value()[:10])
+
+    st.markdown(
+        f"""
+        <div class="admin-hero">
+          <h1>Admin dashboard</h1>
+          <p>Live order control room for Waterfront staff and kitchen prep.</p>
+        </div>
+        <div class="admin-stat-grid">
+          <div class="admin-stat-card"><span>Active orders</span><strong>{len(active)}</strong></div>
+          <div class="admin-stat-card is-new"><span>New orders</span><strong>{new_count}</strong></div>
+          <div class="admin-stat-card is-ready"><span>Ready / on the way</span><strong>{ready_count}</strong></div>
+          <div class="admin-stat-card is-sales"><span>Today's sales</span><strong>{money(today_total)}</strong></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    col_action, col_logout, _ = st.columns([0.18, 0.18, 0.64])
     with col_action:
         if st.button("Refresh", use_container_width=True):
             st.cache_data.clear()
@@ -1506,11 +1602,13 @@ def render_admin() -> None:
             st.session_state.view = "Order"
             st.rerun()
 
+    st.markdown('<div class="admin-panel">', unsafe_allow_html=True)
     tab_orders, tab_menu = st.tabs(["Live orders", "Menu"])
     with tab_orders:
         render_admin_orders()
     with tab_menu:
         render_admin_menu()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_topbar() -> None:
@@ -1566,6 +1664,9 @@ def main() -> None:
     if st.session_state.cart_notice:
         st.toast(st.session_state.cart_notice)
         st.session_state.cart_notice = ""
+    if st.session_state.view == "Admin" and st.session_state.admin_authenticated:
+        render_admin()
+        return
     render_topbar()
     view = render_navigation()
 
